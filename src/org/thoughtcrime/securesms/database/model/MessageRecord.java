@@ -29,6 +29,7 @@ import org.thoughtcrime.securesms.database.documents.NetworkFailure;
 import org.thoughtcrime.securesms.database.documents.IdentityKeyMismatch;
 import org.thoughtcrime.securesms.recipients.Recipient;
 import org.thoughtcrime.securesms.recipients.Recipients;
+import org.thoughtcrime.securesms.util.ExpirationUtil;
 import org.thoughtcrime.securesms.util.GroupUtil;
 
 import java.util.List;
@@ -43,55 +44,39 @@ import java.util.List;
  */
 public abstract class MessageRecord extends DisplayRecord {
 
-  public static final int DELIVERY_STATUS_NONE     = 0;
-  public static final int DELIVERY_STATUS_RECEIVED = 1;
-  public static final int DELIVERY_STATUS_PENDING  = 2;
-  public static final int DELIVERY_STATUS_FAILED   = 3;
-
   private static final int MAX_DISPLAY_LENGTH = 2000;
 
   private final Recipient                 individualRecipient;
   private final int                       recipientDeviceId;
   private final long                      id;
-  private final int                       deliveryStatus;
-  private final int                       receiptCount;
   private final List<IdentityKeyMismatch> mismatches;
   private final List<NetworkFailure>      networkFailures;
+  private final int                       subscriptionId;
+  private final long                      expiresIn;
+  private final long                      expireStarted;
 
   MessageRecord(Context context, long id, Body body, Recipients recipients,
                 Recipient individualRecipient, int recipientDeviceId,
                 long dateSent, long dateReceived, long threadId,
                 int deliveryStatus, int receiptCount, long type,
                 List<IdentityKeyMismatch> mismatches,
-                List<NetworkFailure> networkFailures)
+                List<NetworkFailure> networkFailures,
+                int subscriptionId, long expiresIn, long expireStarted)
   {
-    super(context, body, recipients, dateSent, dateReceived, threadId, type);
+    super(context, body, recipients, dateSent, dateReceived, threadId, deliveryStatus, receiptCount,
+          type);
     this.id                  = id;
     this.individualRecipient = individualRecipient;
     this.recipientDeviceId   = recipientDeviceId;
-    this.deliveryStatus      = deliveryStatus;
-    this.receiptCount        = receiptCount;
     this.mismatches          = mismatches;
     this.networkFailures     = networkFailures;
+    this.subscriptionId      = subscriptionId;
+    this.expiresIn           = expiresIn;
+    this.expireStarted       = expireStarted;
   }
 
   public abstract boolean isMms();
   public abstract boolean isMmsNotification();
-
-  public boolean isFailed() {
-    return
-        MmsSmsColumns.Types.isFailedMessageType(type)            ||
-        MmsSmsColumns.Types.isPendingSecureSmsFallbackType(type) ||
-        getDeliveryStatus() == DELIVERY_STATUS_FAILED;
-  }
-
-  public boolean isOutgoing() {
-    return MmsSmsColumns.Types.isOutgoingMessageType(type);
-  }
-
-  public boolean isPending() {
-    return MmsSmsColumns.Types.isPendingMessageType(type);
-  }
 
   public boolean isSecure() {
     return MmsSmsColumns.Types.isSecureType(type);
@@ -110,11 +95,25 @@ public abstract class MessageRecord extends DisplayRecord {
     if (isGroupUpdate() && isOutgoing()) {
       return emphasisAdded(context.getString(R.string.MessageRecord_updated_group));
     } else if (isGroupUpdate()) {
-      return emphasisAdded(GroupUtil.getDescription(context, getBody().getBody()));
+      return emphasisAdded(GroupUtil.getDescription(context, getBody().getBody()).toString());
     } else if (isGroupQuit() && isOutgoing()) {
       return emphasisAdded(context.getString(R.string.MessageRecord_left_group));
     } else if (isGroupQuit()) {
       return emphasisAdded(context.getString(R.string.ConversationItem_group_action_left, getIndividualRecipient().toShortString()));
+    } else if (isIncomingCall()) {
+      return emphasisAdded(context.getString(R.string.MessageRecord_s_called_you, getIndividualRecipient().toShortString()));
+    } else if (isOutgoingCall()) {
+      return emphasisAdded(context.getString(R.string.MessageRecord_called_s, getIndividualRecipient().toShortString()));
+    } else if (isMissedCall()) {
+      return emphasisAdded(context.getString(R.string.MessageRecord_missed_call_from, getIndividualRecipient().toShortString()));
+    } else if (isJoined()) {
+      return emphasisAdded(context.getString(R.string.MessageRecord_s_is_on_signal_say_hey, getIndividualRecipient().toShortString()));
+    } else if (isExpirationTimerUpdate()) {
+      String time = ExpirationUtil.getExpirationDisplayValue(context, (int)(getExpiresIn() / 1000));
+      return isOutgoing() ? emphasisAdded(context.getString(R.string.MessageRecord_you_set_disappearing_message_time_to_s, time))
+                          : emphasisAdded(context.getString(R.string.MessageRecord_s_set_disappearing_message_time_to_s, getIndividualRecipient().toShortString(), time));
+    } else if (isIdentityUpdate()) {
+      return emphasisAdded(context.getString(R.string.MessageRecord_your_safety_number_with_s_has_changed, getIndividualRecipient().toShortString()));
     } else if (getBody().getBody().length() > MAX_DISPLAY_LENGTH) {
       return new SpannableString(getBody().getBody().substring(0, MAX_DISPLAY_LENGTH));
     }
@@ -126,16 +125,15 @@ public abstract class MessageRecord extends DisplayRecord {
     return id;
   }
 
-  public int getDeliveryStatus() {
-    return deliveryStatus;
-  }
-
-  public boolean isDelivered() {
-    return getDeliveryStatus() == DELIVERY_STATUS_RECEIVED || receiptCount > 0;
-  }
-
   public boolean isPush() {
     return SmsDatabase.Types.isPushType(type) && !SmsDatabase.Types.isForcedSms(type);
+  }
+
+  public long getTimestamp() {
+    if (isPush() && getDateSent() < getDateReceived()) {
+      return getDateSent();
+    }
+    return getDateReceived();
   }
 
   public boolean isForcedSms() {
@@ -148,10 +146,6 @@ public abstract class MessageRecord extends DisplayRecord {
 
   public boolean isProcessedKeyExchange() {
     return SmsDatabase.Types.isProcessedKeyExchange(type);
-  }
-
-  public boolean isPendingInsecureSmsFallback() {
-    return SmsDatabase.Types.isPendingInsecureSmsFallbackType(type);
   }
 
   public boolean isIdentityMismatchFailure() {
@@ -172,6 +166,10 @@ public abstract class MessageRecord extends DisplayRecord {
 
   public boolean isInvalidVersionKeyExchange() {
     return SmsDatabase.Types.isInvalidVersionKeyExchange(type);
+  }
+
+  public boolean isMediaPending() {
+    return false;
   }
 
   public Recipient getIndividualRecipient() {
@@ -217,4 +215,15 @@ public abstract class MessageRecord extends DisplayRecord {
     return (int)getId();
   }
 
+  public int getSubscriptionId() {
+    return subscriptionId;
+  }
+
+  public long getExpiresIn() {
+    return expiresIn;
+  }
+
+  public long getExpireStarted() {
+    return expireStarted;
+  }
 }

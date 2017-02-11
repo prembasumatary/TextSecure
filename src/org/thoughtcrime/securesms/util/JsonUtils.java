@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.Reader;
 
 public class JsonUtils {
 
@@ -15,11 +16,19 @@ public class JsonUtils {
     objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
   }
 
+  public static <T> T fromJson(byte[] serialized, Class<T> clazz) throws IOException {
+    return fromJson(new String(serialized), clazz);
+  }
+
   public static <T> T fromJson(String serialized, Class<T> clazz) throws IOException {
     return objectMapper.readValue(serialized, clazz);
   }
 
-  public static <T> T fromJson(InputStreamReader serialized, Class<T> clazz) throws IOException {
+  public static <T> T fromJson(InputStream serialized, Class<T> clazz) throws IOException {
+    return objectMapper.readValue(serialized, clazz);
+  }
+
+  public static <T> T fromJson(Reader serialized, Class<T> clazz) throws IOException {
     return objectMapper.readValue(serialized, clazz);
   }
 

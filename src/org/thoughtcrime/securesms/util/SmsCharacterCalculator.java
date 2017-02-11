@@ -16,27 +16,26 @@
  */
 package org.thoughtcrime.securesms.util;
 
-import org.thoughtcrime.securesms.sms.SmsTransportDetails;
+import android.telephony.SmsMessage;
 
 public class SmsCharacterCalculator extends CharacterCalculator {
 
   @Override
-  public CharacterState calculateCharacters(int charactersSpent) {
+  public CharacterState calculateCharacters(String messageBody) {
+
+    int[] length            = SmsMessage.calculateLength(messageBody, false);
+    int messagesSpent       = length[0];
+    int charactersSpent     = length[1];
+    int charactersRemaining = length[2];
+
     int maxMessageSize;
 
-    if (charactersSpent <= SmsTransportDetails.SMS_SIZE) {
-      maxMessageSize = SmsTransportDetails.SMS_SIZE;
+    if (messagesSpent > 0) {
+      maxMessageSize = (charactersSpent + charactersRemaining) / messagesSpent;
     } else {
-      maxMessageSize = SmsTransportDetails.MULTIPART_SMS_SIZE;
+      maxMessageSize = (charactersSpent + charactersRemaining);
     }
-
-    int messagesSpent = charactersSpent / maxMessageSize;
-
-    if (((charactersSpent % maxMessageSize) > 0) || (messagesSpent == 0))
-      messagesSpent++;
-
-    int charactersRemaining = (maxMessageSize * messagesSpent) - charactersSpent;
-
+    
     return new CharacterState(messagesSpent, charactersRemaining, maxMessageSize);
   }
 }

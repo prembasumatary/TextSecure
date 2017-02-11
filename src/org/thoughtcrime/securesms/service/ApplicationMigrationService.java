@@ -183,13 +183,13 @@ public class ApplicationMigrationService extends Service
     }
   }
 
-  private class CompletedReceiver extends BroadcastReceiver {
+  private static class CompletedReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent) {
       NotificationCompat.Builder builder = new NotificationCompat.Builder(context);
       builder.setSmallIcon(R.drawable.icon_notification);
-      builder.setContentTitle("Import Complete");
-      builder.setContentText("TextSecure system database import is complete.");
+      builder.setContentTitle(context.getString(R.string.ApplicationMigrationService_import_complete));
+      builder.setContentText(context.getString(R.string.ApplicationMigrationService_system_database_import_is_complete));
       builder.setContentIntent(PendingIntent.getActivity(context, 0, new Intent(context, ConversationListActivity.class), 0));
       builder.setWhen(System.currentTimeMillis());
       builder.setDefaults(Notification.DEFAULT_VIBRATE);

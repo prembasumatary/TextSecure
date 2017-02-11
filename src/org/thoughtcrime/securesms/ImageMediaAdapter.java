@@ -19,6 +19,7 @@ package org.thoughtcrime.securesms;
 import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
+import android.support.annotation.NonNull;
 import android.support.v7.widget.RecyclerView;
 import android.text.TextUtils;
 import android.view.LayoutInflater;
@@ -30,18 +31,17 @@ import org.thoughtcrime.securesms.ImageMediaAdapter.ViewHolder;
 import org.thoughtcrime.securesms.components.ThumbnailView;
 import org.thoughtcrime.securesms.crypto.MasterSecret;
 import org.thoughtcrime.securesms.database.CursorRecyclerViewAdapter;
-import org.thoughtcrime.securesms.database.PartDatabase.ImageRecord;
+import org.thoughtcrime.securesms.database.ImageDatabase.ImageRecord;
 import org.thoughtcrime.securesms.mms.Slide;
 import org.thoughtcrime.securesms.recipients.RecipientFactory;
 import org.thoughtcrime.securesms.recipients.Recipients;
 import org.thoughtcrime.securesms.util.MediaUtil;
 
-import ws.com.google.android.mms.pdu.PduPart;
-
 public class ImageMediaAdapter extends CursorRecyclerViewAdapter<ViewHolder> {
   private static final String TAG = ImageMediaAdapter.class.getSimpleName();
 
   private final MasterSecret masterSecret;
+  private final long         threadId;
 
   public static class ViewHolder extends RecyclerView.ViewHolder {
     public ThumbnailView imageView;
@@ -52,59 +52,57 @@ public class ImageMediaAdapter extends CursorRecyclerViewAdapter<ViewHolder> {
     }
   }
 
-  public ImageMediaAdapter(Context context, MasterSecret masterSecret, Cursor c) {
+  public ImageMediaAdapter(Context context, MasterSecret masterSecret, Cursor c, long threadId) {
     super(context, c);
     this.masterSecret = masterSecret;
+    this.threadId     = threadId;
   }
 
   @Override
-  public ViewHolder onCreateViewHolder(final ViewGroup viewGroup, final int i) {
+  public ViewHolder onCreateItemViewHolder(final ViewGroup viewGroup, final int i) {
     final View view = LayoutInflater.from(getContext()).inflate(R.layout.media_overview_item, viewGroup, false);
     return new ViewHolder(view);
   }
 
   @Override
-  public void onBindViewHolder(final ViewHolder viewHolder, final Cursor cursor) {
+  public void onBindItemViewHolder(final ViewHolder viewHolder, final @NonNull Cursor cursor) {
     final ThumbnailView imageView   = viewHolder.imageView;
-    final ImageRecord   imageRecord = ImageRecord.from(cursor);
+    final ImageRecord imageRecord = ImageRecord.from(cursor);
 
-    PduPart part = new PduPart();
+    Slide slide = MediaUtil.getSlideForAttachment(getContext(), imageRecord.getAttachment());
 
-    part.setDataUri(imageRecord.getUri());
-    part.setContentType(imageRecord.getContentType().getBytes());
-    part.setPartId(imageRecord.getPartId());
-
-    Slide slide = MediaUtil.getSlideForPart(getContext(), masterSecret, part, imageRecord.getContentType());
     if (slide != null) {
-      imageView.setImageResource(slide, masterSecret);
+      imageView.setImageResource(masterSecret, slide, false);
     }
 
     imageView.setOnClickListener(new OnMediaClickListener(imageRecord));
   }
 
   private class OnMediaClickListener implements OnClickListener {
-    private ImageRecord record;
+    private final ImageRecord imageRecord;
 
-    private OnMediaClickListener(ImageRecord record) {
-      this.record = record;
+    private OnMediaClickListener(ImageRecord imageRecord) {
+      this.imageRecord = imageRecord;
     }
 
     @Override
     public void onClick(View v) {
-      Intent intent = new Intent(getContext(), MediaPreviewActivity.class);
-      intent.putExtra(MediaPreviewActivity.DATE_EXTRA, record.getDate());
+      if (imageRecord.getAttachment().getDataUri() != null) {
+        Intent intent = new Intent(getContext(), MediaPreviewActivity.class);
+        intent.putExtra(MediaPreviewActivity.DATE_EXTRA, imageRecord.getDate());
+        intent.putExtra(MediaPreviewActivity.THREAD_ID_EXTRA, threadId);
 
-      if (!TextUtils.isEmpty(record.getAddress())) {
-        Recipients recipients = RecipientFactory.getRecipientsFromString(getContext(),
-                                                                         record.getAddress(),
-                                                                         true);
-        if (recipients != null && recipients.getPrimaryRecipient() != null) {
-          intent.putExtra(MediaPreviewActivity.RECIPIENT_EXTRA, recipients.getPrimaryRecipient().getRecipientId());
+        if (!TextUtils.isEmpty(imageRecord.getAddress())) {
+          Recipients recipients = RecipientFactory.getRecipientsFromString(getContext(),
+                                                                           imageRecord.getAddress(),
+                                                                           true);
+          if (recipients != null && recipients.getPrimaryRecipient() != null) {
+            intent.putExtra(MediaPreviewActivity.RECIPIENT_EXTRA, recipients.getPrimaryRecipient().getRecipientId());
+          }
         }
+        intent.setDataAndType(imageRecord.getAttachment().getDataUri(), imageRecord.getContentType());
+        getContext().startActivity(intent);
       }
-      intent.setDataAndType(record.getUri(), record.getContentType());
-      getContext().startActivity(intent);
-
     }
   }
 }

@@ -17,6 +17,7 @@
                   android:layout_width="match_parent"
                   android:layout_height="wrap_content"
                   android:background="?import_export_item_card_background"
+                  android:focusable="true"
                   android:orientation="vertical">
 
         <LinearLayout android:orientation="horizontal"
@@ -31,6 +32,7 @@
             <ImageView android:layout_width="wrap_content"
                        android:layout_height="wrap_content"
                        android:layout_marginRight="10dip"
+                       android:layout_marginEnd="10dip"
                        android:src="?import_sms"/>
 
             <LinearLayout android:orientation="vertical"
@@ -39,11 +41,13 @@
 
                 <TextView android:layout_width="match_parent"
                           android:layout_height="wrap_content"
+                          android:gravity="start"
                           style="@style/Registration.Description"
                           android:text="@string/import_fragment__import_system_sms_database"/>
 
                 <TextView android:layout_width="match_parent"
                           android:layout_height="wrap_content"
+                          android:gravity="start"
                           android:textAppearance="?android:attr/textAppearanceSmall"
                           android:text="@string/import_fragment__import_the_database_from_the_default_system"/>
 
@@ -57,6 +61,7 @@
                   android:layout_height="wrap_content"
                   android:layout_marginTop="10dip"
                   android:background="?import_export_item_card_background"
+                  android:focusable="true"
                   android:orientation="vertical">
 
         <LinearLayout android:orientation="horizontal"
@@ -71,6 +76,7 @@
             <ImageView android:layout_width="wrap_content"
                        android:layout_height="wrap_content"
                        android:layout_marginRight="10dip"
+                       android:layout_marginEnd="10dip"
                        android:src="?encrypted_backup"/>
 
             <LinearLayout android:orientation="vertical"
@@ -79,13 +85,15 @@
 
                 <TextView android:layout_width="match_parent"
                           android:layout_height="wrap_content"
+                          android:gravity="start"
                           style="@style/Registration.Description"
-                          android:text="@string/import_fragment__import_encrypted_backup"/>
+                          android:text="@string/import_fragment__restore_encrypted_backup"/>
 
                 <TextView android:layout_width="match_parent"
                           android:layout_height="wrap_content"
+                          android:gravity="start"
                           android:textAppearance="?android:attr/textAppearanceSmall"
-                          android:text="@string/import_fragment__restore_a_previously_exported_encrypted_textsecure_backup"/>
+                          android:text="@string/import_fragment__restore_a_previously_exported_encrypted_signal_backup"/>
 
             </LinearLayout>
         </LinearLayout>
@@ -98,6 +106,7 @@
                   android:layout_height="wrap_content"
                   android:layout_marginTop="10dip"
                   android:background="?import_export_item_card_background"
+                  android:focusable="true"
                   android:orientation="vertical">
 
         <LinearLayout android:orientation="horizontal"
@@ -112,6 +121,7 @@
             <ImageView android:layout_width="wrap_content"
                        android:layout_height="wrap_content"
                        android:layout_marginRight="10dip"
+                       android:layout_marginEnd="10dip"
                        android:src="?plaintext_backup"/>
 
             <LinearLayout android:orientation="vertical"
@@ -120,11 +130,13 @@
 
                 <TextView android:layout_width="match_parent"
                           android:layout_height="wrap_content"
+                          android:gravity="start"
                           style="@style/Registration.Description"
                           android:text="@string/import_fragment__import_plaintext_backup"/>
 
                 <TextView android:layout_width="match_parent"
                           android:layout_height="wrap_content"
+                          android:gravity="start"
                           android:textAppearance="?android:attr/textAppearanceSmall"
                           android:text="@string/import_fragment__import_a_plaintext_backup_file"/>
             </LinearLayout>

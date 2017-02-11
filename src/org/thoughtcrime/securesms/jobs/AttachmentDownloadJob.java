@@ -1,81 +1,94 @@
 package org.thoughtcrime.securesms.jobs;
 
 import android.content.Context;
+import android.support.annotation.VisibleForTesting;
+import android.text.TextUtils;
 import android.util.Log;
 
+import org.thoughtcrime.securesms.attachments.Attachment;
+import org.thoughtcrime.securesms.attachments.AttachmentId;
 import org.thoughtcrime.securesms.crypto.AsymmetricMasterSecret;
 import org.thoughtcrime.securesms.crypto.MasterSecret;
 import org.thoughtcrime.securesms.crypto.MasterSecretUtil;
 import org.thoughtcrime.securesms.crypto.MediaKey;
 import org.thoughtcrime.securesms.database.DatabaseFactory;
-import org.thoughtcrime.securesms.database.PartDatabase;
-import org.thoughtcrime.securesms.database.PartDatabase.PartId;
+import org.thoughtcrime.securesms.database.AttachmentDatabase;
 import org.thoughtcrime.securesms.dependencies.InjectableType;
+import org.thoughtcrime.securesms.events.PartProgressEvent;
 import org.thoughtcrime.securesms.jobs.requirements.MasterSecretRequirement;
-import org.thoughtcrime.securesms.util.Util;
+import org.thoughtcrime.securesms.jobs.requirements.MediaNetworkRequirement;
+import org.thoughtcrime.securesms.notifications.MessageNotifier;
 import org.whispersystems.jobqueue.JobParameters;
 import org.whispersystems.jobqueue.requirements.NetworkRequirement;
-import org.whispersystems.libaxolotl.InvalidMessageException;
-import org.whispersystems.textsecure.api.TextSecureMessageReceiver;
-import org.whispersystems.textsecure.api.messages.TextSecureAttachment.ProgressListener;
-import org.whispersystems.textsecure.api.messages.TextSecureAttachmentPointer;
-import org.whispersystems.textsecure.api.push.exceptions.NonSuccessfulResponseCodeException;
-import org.whispersystems.textsecure.api.push.exceptions.PushNetworkException;
+import org.whispersystems.libsignal.InvalidMessageException;
+import org.whispersystems.signalservice.api.SignalServiceMessageReceiver;
+import org.whispersystems.signalservice.api.messages.SignalServiceAttachment.ProgressListener;
+import org.whispersystems.signalservice.api.messages.SignalServiceAttachmentPointer;
+import org.whispersystems.signalservice.api.push.exceptions.NonSuccessfulResponseCodeException;
+import org.whispersystems.signalservice.api.push.exceptions.PushNetworkException;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.List;
 
 import javax.inject.Inject;
 
 import de.greenrobot.event.EventBus;
 import ws.com.google.android.mms.MmsException;
-import ws.com.google.android.mms.pdu.PduPart;
 
 public class AttachmentDownloadJob extends MasterSecretJob implements InjectableType {
+  private static final long   serialVersionUID = 1L;
+  private static final String TAG              = AttachmentDownloadJob.class.getSimpleName();
 
-  private static final String TAG = AttachmentDownloadJob.class.getSimpleName();
-
-  @Inject transient TextSecureMessageReceiver messageReceiver;
+  @Inject transient SignalServiceMessageReceiver messageReceiver;
 
   private final long messageId;
+  private final long partRowId;
+  private final long partUniqueId;
 
-  public AttachmentDownloadJob(Context context, long messageId) {
+  public AttachmentDownloadJob(Context context, long messageId, AttachmentId attachmentId) {
     super(context, JobParameters.newBuilder()
+                                .withGroupId(AttachmentDownloadJob.class.getCanonicalName())
                                 .withRequirement(new MasterSecretRequirement(context))
                                 .withRequirement(new NetworkRequirement(context))
+                                .withRequirement(new MediaNetworkRequirement(context, messageId, attachmentId))
                                 .withPersistence()
                                 .create());
 
-    this.messageId = messageId;
+    this.messageId    = messageId;
+    this.partRowId    = attachmentId.getRowId();
+    this.partUniqueId = attachmentId.getUniqueId();
   }
 
   @Override
-  public void onAdded() {}
+  public void onAdded() {
+  }
 
   @Override
   public void onRun(MasterSecret masterSecret) throws IOException {
-    PartDatabase database = DatabaseFactory.getPartDatabase(context);
+    final AttachmentId attachmentId = new AttachmentId(partRowId, partUniqueId);
+    final Attachment   attachment   = DatabaseFactory.getAttachmentDatabase(context).getAttachment(attachmentId);
 
-    Log.w(TAG, "Downloading push parts for: " + messageId);
-
-    List<PduPart> parts = database.getParts(messageId);
-
-    for (PduPart part : parts) {
-      retrievePart(masterSecret, part, messageId);
-      Log.w(TAG, "Got part: " + part.getPartId());
+    if (attachment == null) {
+      Log.w(TAG, "attachment no longer exists.");
+      return;
     }
+
+    if (!attachment.isInProgress()) {
+      Log.w(TAG, "Attachment was already downloaded.");
+      return;
+    }
+
+    Log.w(TAG, "Downloading push part " + attachmentId);
+
+    retrieveAttachment(masterSecret, messageId, attachmentId, attachment);
+    MessageNotifier.updateNotification(context, masterSecret);
   }
 
   @Override
   public void onCanceled() {
-    PartDatabase  database = DatabaseFactory.getPartDatabase(context);
-    List<PduPart> parts    = database.getParts(messageId);
-
-    for (PduPart part : parts) {
-      markFailed(messageId, part, part.getPartId());
-    }
+    final AttachmentId attachmentId = new AttachmentId(partRowId, partUniqueId);
+    markFailed(messageId, attachmentId);
   }
 
   @Override
@@ -83,47 +96,60 @@ public class AttachmentDownloadJob extends MasterSecretJob implements Injectable
     return (exception instanceof PushNetworkException);
   }
 
-  private void retrievePart(MasterSecret masterSecret, PduPart part, long messageId)
+  private void retrieveAttachment(MasterSecret masterSecret,
+                                  long messageId,
+                                  final AttachmentId attachmentId,
+                                  final Attachment attachment)
       throws IOException
   {
-    PartDatabase database       = DatabaseFactory.getPartDatabase(context);
-    File         attachmentFile = null;
 
-    final PartId partId = part.getPartId();
+    AttachmentDatabase database       = DatabaseFactory.getAttachmentDatabase(context);
+    File               attachmentFile = null;
+
     try {
       attachmentFile = createTempFile();
 
-      TextSecureAttachmentPointer pointer    = createAttachmentPointer(masterSecret, part);
-      InputStream                 attachment = messageReceiver.retrieveAttachment(pointer, attachmentFile, new ProgressListener() {
-        @Override public void onAttachmentProgress(long total, long progress) {
-          EventBus.getDefault().postSticky(new PartProgressEvent(partId, total, progress));
+      SignalServiceAttachmentPointer pointer = createAttachmentPointer(masterSecret, attachment);
+      InputStream                    stream  = messageReceiver.retrieveAttachment(pointer, attachmentFile, new ProgressListener() {
+        @Override
+        public void onAttachmentProgress(long total, long progress) {
+          EventBus.getDefault().postSticky(new PartProgressEvent(attachment, total, progress));
         }
       });
 
-      database.updateDownloadedPart(masterSecret, messageId, partId, part, attachment);
+      database.insertAttachmentsForPlaceholder(masterSecret, messageId, attachmentId, stream);
     } catch (InvalidPartException | NonSuccessfulResponseCodeException | InvalidMessageException | MmsException e) {
       Log.w(TAG, e);
-      markFailed(messageId, part, partId);
+      markFailed(messageId, attachmentId);
     } finally {
       if (attachmentFile != null)
         attachmentFile.delete();
     }
   }
 
-  private TextSecureAttachmentPointer createAttachmentPointer(MasterSecret masterSecret, PduPart part)
+  @VisibleForTesting
+  SignalServiceAttachmentPointer createAttachmentPointer(MasterSecret masterSecret, Attachment attachment)
       throws InvalidPartException
   {
+    if (TextUtils.isEmpty(attachment.getLocation())) {
+      throw new InvalidPartException("empty content id");
+    }
+
+    if (TextUtils.isEmpty(attachment.getKey())) {
+      throw new InvalidPartException("empty encrypted key");
+    }
+
     try {
       AsymmetricMasterSecret asymmetricMasterSecret = MasterSecretUtil.getAsymmetricMasterSecret(context, masterSecret);
-      long                   id                     = Long.parseLong(Util.toIsoString(part.getContentLocation()));
-      byte[]                 key                    = MediaKey.getDecrypted(masterSecret, asymmetricMasterSecret, Util.toIsoString(part.getContentDisposition()));
+      long                   id                     = Long.parseLong(attachment.getLocation());
+      byte[]                 key                    = MediaKey.getDecrypted(masterSecret, asymmetricMasterSecret, attachment.getKey());
       String                 relay                  = null;
 
-      if (part.getName() != null) {
-        relay = Util.toIsoString(part.getName());
+      if (TextUtils.isEmpty(attachment.getRelay())) {
+        relay = attachment.getRelay();
       }
 
-      return new TextSecureAttachmentPointer(id, null, key, relay);
+      return new SignalServiceAttachmentPointer(id, null, key, relay);
     } catch (InvalidMessageException | IOException e) {
       Log.w(TAG, e);
       throw new InvalidPartException(e);
@@ -141,16 +167,17 @@ public class AttachmentDownloadJob extends MasterSecretJob implements Injectable
     }
   }
 
-  private void markFailed(long messageId, PduPart part, PartDatabase.PartId partId) {
+  private void markFailed(long messageId, AttachmentId attachmentId) {
     try {
-      PartDatabase database = DatabaseFactory.getPartDatabase(context);
-      database.updateFailedDownloadedPart(messageId, partId, part);
+      AttachmentDatabase database = DatabaseFactory.getAttachmentDatabase(context);
+      database.setTransferProgressFailed(attachmentId, messageId);
     } catch (MmsException e) {
       Log.w(TAG, e);
     }
   }
 
-  private class InvalidPartException extends Exception {
+  @VisibleForTesting static class InvalidPartException extends Exception {
+    public InvalidPartException(String s) {super(s);}
     public InvalidPartException(Exception e) {super(e);}
   }
 

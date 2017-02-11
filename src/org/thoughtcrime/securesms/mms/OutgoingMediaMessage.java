@@ -1,64 +1,65 @@
 package org.thoughtcrime.securesms.mms;
 
-import android.content.Context;
 import android.text.TextUtils;
 
-import org.thoughtcrime.securesms.crypto.MasterSecretUnion;
-import org.thoughtcrime.securesms.crypto.MediaKey;
-import org.thoughtcrime.securesms.database.ThreadDatabase;
+import org.thoughtcrime.securesms.attachments.Attachment;
 import org.thoughtcrime.securesms.recipients.Recipients;
-import org.thoughtcrime.securesms.util.Util;
-import org.whispersystems.textsecure.api.messages.TextSecureAttachment;
 
 import java.util.List;
 
-import ws.com.google.android.mms.pdu.PduBody;
-import ws.com.google.android.mms.pdu.PduPart;
-
 public class OutgoingMediaMessage {
 
-  private   final Recipients recipients;
-  protected final PduBody    body;
-  private   final int        distributionType;
+  private   final Recipients       recipients;
+  protected final String           body;
+  protected final List<Attachment> attachments;
+  private   final long             sentTimeMillis;
+  private   final int              distributionType;
+  private   final int              subscriptionId;
+  private   final long             expiresIn;
 
-  public OutgoingMediaMessage(Context context, Recipients recipients, PduBody body,
-                              String message, int distributionType)
+  public OutgoingMediaMessage(Recipients recipients, String message,
+                              List<Attachment> attachments, long sentTimeMillis,
+                              int subscriptionId, long expiresIn,
+                              int distributionType)
   {
     this.recipients       = recipients;
-    this.body             = body;
+    this.body             = message;
+    this.sentTimeMillis   = sentTimeMillis;
     this.distributionType = distributionType;
-
-    if (!TextUtils.isEmpty(message)) {
-      this.body.addPart(new TextSlide(context, message).getPart());
-    }
+    this.attachments      = attachments;
+    this.subscriptionId   = subscriptionId;
+    this.expiresIn        = expiresIn;
   }
 
-  public OutgoingMediaMessage(Context context, Recipients recipients, SlideDeck slideDeck,
-                              String message, int distributionType)
+  public OutgoingMediaMessage(Recipients recipients, SlideDeck slideDeck, String message, long sentTimeMillis, int subscriptionId, long expiresIn, int distributionType)
   {
-    this(context, recipients, slideDeck.toPduBody(), message, distributionType);
-  }
-
-  public OutgoingMediaMessage(Context context, MasterSecretUnion masterSecret,
-                              Recipients recipients, List<TextSecureAttachment> attachments,
-                              String message)
-  {
-    this(context, recipients, pduBodyFor(masterSecret, attachments), message,
-         ThreadDatabase.DistributionTypes.CONVERSATION);
+    this(recipients,
+         buildMessage(slideDeck, message),
+         slideDeck.asAttachments(),
+         sentTimeMillis, subscriptionId,
+         expiresIn, distributionType);
   }
 
   public OutgoingMediaMessage(OutgoingMediaMessage that) {
     this.recipients       = that.getRecipients();
     this.body             = that.body;
     this.distributionType = that.distributionType;
+    this.attachments      = that.attachments;
+    this.sentTimeMillis   = that.sentTimeMillis;
+    this.subscriptionId   = that.subscriptionId;
+    this.expiresIn        = that.expiresIn;
   }
 
   public Recipients getRecipients() {
     return recipients;
   }
 
-  public PduBody getPduBody() {
+  public String getBody() {
     return body;
+  }
+
+  public List<Attachment> getAttachments() {
+    return attachments;
   }
 
   public int getDistributionType() {
@@ -73,23 +74,29 @@ public class OutgoingMediaMessage {
     return false;
   }
 
-  private static PduBody pduBodyFor(MasterSecretUnion masterSecret, List<TextSecureAttachment> attachments) {
-    PduBody body = new PduBody();
-
-    for (TextSecureAttachment attachment : attachments) {
-      if (attachment.isPointer()) {
-        PduPart media        = new PduPart();
-        String  encryptedKey = MediaKey.getEncrypted(masterSecret, attachment.asPointer().getKey());
-
-        media.setContentType(Util.toIsoBytes(attachment.getContentType()));
-        media.setContentLocation(Util.toIsoBytes(String.valueOf(attachment.asPointer().getId())));
-        media.setContentDisposition(Util.toIsoBytes(encryptedKey));
-
-        body.addPart(media);
-      }
-    }
-
-    return body;
+  public boolean isExpirationUpdate() {
+    return false;
   }
 
+  public long getSentTimeMillis() {
+    return sentTimeMillis;
+  }
+
+  public int getSubscriptionId() {
+    return subscriptionId;
+  }
+
+  public long getExpiresIn() {
+    return expiresIn;
+  }
+
+  private static String buildMessage(SlideDeck slideDeck, String message) {
+    if (!TextUtils.isEmpty(message) && !TextUtils.isEmpty(slideDeck.getBody())) {
+      return slideDeck.getBody() + "\n\n" + message;
+    } else if (!TextUtils.isEmpty(message)) {
+      return message;
+    } else {
+      return slideDeck.getBody();
+    }
+  }
 }

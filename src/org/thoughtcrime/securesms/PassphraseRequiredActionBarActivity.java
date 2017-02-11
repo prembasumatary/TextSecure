@@ -4,17 +4,17 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.os.Build;
 import android.os.Bundle;
 import android.support.annotation.IdRes;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v4.app.Fragment;
 import android.util.Log;
-import android.view.WindowManager;
 
 import org.thoughtcrime.securesms.crypto.MasterSecret;
 import org.thoughtcrime.securesms.crypto.MasterSecretUtil;
+import org.thoughtcrime.securesms.jobs.PushNotificationReceiveJob;
+import org.thoughtcrime.securesms.push.SignalServiceNetworkAccess;
 import org.thoughtcrime.securesms.service.KeyCachingService;
 import org.thoughtcrime.securesms.service.MessageRetrievalService;
 import org.thoughtcrime.securesms.util.TextSecurePreferences;
@@ -31,12 +31,16 @@ public abstract class PassphraseRequiredActionBarActivity extends BaseActionBarA
   private static final int STATE_PROMPT_PASSPHRASE        = 2;
   private static final int STATE_UPGRADE_DATABASE         = 3;
   private static final int STATE_PROMPT_PUSH_REGISTRATION = 4;
+  private static final int STATE_EXPERIENCE_UPGRADE       = 5;
 
-  private BroadcastReceiver clearKeyReceiver;
-  private boolean           isVisible;
+  private SignalServiceNetworkAccess networkAccess;
+  private BroadcastReceiver          clearKeyReceiver;
+  private boolean                    isVisible;
 
   @Override
   protected final void onCreate(Bundle savedInstanceState) {
+    Log.w(TAG, "onCreate(" + savedInstanceState + ")");
+    this.networkAccess = new SignalServiceNetworkAccess(this);
     onPreCreate();
     final MasterSecret masterSecret = KeyCachingService.getMasterSecret(this);
     routeApplicationState(masterSecret);
@@ -52,23 +56,30 @@ public abstract class PassphraseRequiredActionBarActivity extends BaseActionBarA
 
   @Override
   protected void onResume() {
+    Log.w(TAG, "onResume()");
     super.onResume();
-    initializeScreenshotSecurity();
     KeyCachingService.registerPassphraseActivityStarted(this);
-    MessageRetrievalService.registerActivityStarted(this);
+
+    if (!networkAccess.isCensored(this)) MessageRetrievalService.registerActivityStarted(this);
+    else                                 ApplicationContext.getInstance(this).getJobManager().add(new PushNotificationReceiveJob(this));
+
     isVisible = true;
   }
 
   @Override
   protected void onPause() {
+    Log.w(TAG, "onPause()");
     super.onPause();
     KeyCachingService.registerPassphraseActivityStopped(this);
-    MessageRetrievalService.registerActivityStopped(this);
+
+    if (!networkAccess.isCensored(this)) MessageRetrievalService.registerActivityStopped(this);
+
     isVisible = false;
   }
 
   @Override
   protected void onDestroy() {
+    Log.w(TAG, "onDestroy()");
     super.onDestroy();
     removeClearKeyReceiver(this);
   }
@@ -128,17 +139,20 @@ public abstract class PassphraseRequiredActionBarActivity extends BaseActionBarA
     Log.w(TAG, "routeApplicationState(), state: " + state);
 
     switch (state) {
-      case STATE_CREATE_PASSPHRASE:        return getCreatePassphraseIntent();
-      case STATE_PROMPT_PASSPHRASE:        return getPromptPassphraseIntent();
-      case STATE_UPGRADE_DATABASE:         return getUpgradeDatabaseIntent(masterSecret);
-      case STATE_PROMPT_PUSH_REGISTRATION: return getPushRegistrationIntent(masterSecret);
-      default:                             return null;
+    case STATE_CREATE_PASSPHRASE:        return getCreatePassphraseIntent();
+    case STATE_PROMPT_PASSPHRASE:        return getPromptPassphraseIntent();
+    case STATE_UPGRADE_DATABASE:         return getUpgradeDatabaseIntent(masterSecret);
+    case STATE_PROMPT_PUSH_REGISTRATION: return getPushRegistrationIntent(masterSecret);
+    case STATE_EXPERIENCE_UPGRADE:       return getExperienceUpgradeIntent();
+    default:                             return null;
     }
   }
 
   private int getApplicationState(MasterSecret masterSecret) {
     if (!MasterSecretUtil.isPassphraseInitialized(this)) {
       return STATE_CREATE_PASSPHRASE;
+    } else if (ExperienceUpgradeActivity.isUpdate(this)) {
+      return STATE_EXPERIENCE_UPGRADE;
     } else if (masterSecret == null) {
       return STATE_PROMPT_PASSPHRASE;
     } else if (DatabaseUpgradeActivity.isUpdate(this)) {
@@ -166,6 +180,10 @@ public abstract class PassphraseRequiredActionBarActivity extends BaseActionBarA
                            masterSecret);
   }
 
+  private Intent getExperienceUpgradeIntent() {
+    return getRoutedIntent(ExperienceUpgradeActivity.class, getIntent(), null);
+  }
+
   private Intent getPushRegistrationIntent(MasterSecret masterSecret) {
     return getRoutedIntent(RegistrationActivity.class, getConversationListIntent(), masterSecret);
   }
@@ -179,16 +197,6 @@ public abstract class PassphraseRequiredActionBarActivity extends BaseActionBarA
 
   private Intent getConversationListIntent() {
     return new Intent(this, ConversationListActivity.class);
-  }
-
-  private void initializeScreenshotSecurity() {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.ICE_CREAM_SANDWICH &&
-        TextSecurePreferences.isScreenSecurityEnabled(this))
-    {
-      getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
-    } else {
-      getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SECURE);
-    }
   }
 
   private void initializeClearKeyReceiver() {

@@ -1,12 +1,25 @@
 package org.thoughtcrime.securesms.util;
 
 import android.content.Context;
+import android.content.SharedPreferences;
+import android.hardware.Camera.CameraInfo;
 import android.os.Build;
 import android.preference.PreferenceManager;
 import android.provider.Settings;
+import android.support.annotation.ArrayRes;
+import android.support.annotation.NonNull;
 import android.util.Log;
 
+import com.h6ah4i.android.compat.content.SharedPreferenceCompat;
+
+import org.thoughtcrime.securesms.R;
+import org.thoughtcrime.securesms.preferences.NotificationPrivacyPreference;
+
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
 
 public class TextSecurePreferences {
 
@@ -32,6 +45,7 @@ public class TextSecurePreferences {
   public  static final String ENABLE_MANUAL_MMS_PREF           = "pref_enable_manual_mms";
 
   private static final String LAST_VERSION_CODE_PREF           = "last_version_code";
+  private static final String LAST_EXPERIENCE_VERSION_PREF     = "last_experience_version_code";
   public  static final String RINGTONE_PREF                    = "pref_key_ringtone";
   private static final String VIBRATE_PREF                     = "pref_key_vibrate";
   private static final String NOTIFICATION_PREF                = "pref_key_enable_notifications";
@@ -55,9 +69,12 @@ public class TextSecurePreferences {
   private static final String GCM_PASSWORD_PREF                = "pref_gcm_password";
   private static final String PROMPTED_PUSH_REGISTRATION_PREF  = "pref_prompted_push_registration";
   private static final String PROMPTED_DEFAULT_SMS_PREF        = "pref_prompted_default_sms";
+  private static final String PROMPTED_SHARE_PREF              = "pref_prompted_share";
   private static final String SIGNALING_KEY_PREF               = "pref_signaling_key";
   private static final String DIRECTORY_FRESH_TIME_PREF        = "pref_directory_refresh_time";
+  private static final String SIGNED_PREKEY_ROTATION_TIME_PREF = "pref_signed_pre_key_rotation_time";
   private static final String IN_THREAD_NOTIFICATION_PREF      = "pref_key_inthread_notifications";
+  private static final String BLOCKING_IDENTITY_CHANGES_PREF   = "pref_blocking_identity_changes";
 
   private static final String LOCAL_REGISTRATION_ID_PREF       = "pref_local_registration_id";
   private static final String SIGNED_PREKEY_REGISTERED_PREF    = "pref_signed_prekey_registered";
@@ -68,8 +85,60 @@ public class TextSecurePreferences {
   private static final String WEBSOCKET_REGISTERED_PREF        = "pref_websocket_registered";
   private static final String RATING_LATER_PREF                = "pref_rating_later";
   private static final String RATING_ENABLED_PREF              = "pref_rating_enabled";
+  private static final String SIGNED_PREKEY_FAILURE_COUNT_PREF = "pref_signed_prekey_failure_count";
 
   public  static final String REPEAT_ALERTS_PREF               = "pref_repeat_alerts";
+  public  static final String NOTIFICATION_PRIVACY_PREF        = "pref_notification_privacy";
+  public  static final String NEW_CONTACTS_NOTIFICATIONS       = "pref_enable_new_contacts_notifications";
+
+  public  static final String MEDIA_DOWNLOAD_MOBILE_PREF       = "pref_media_download_mobile";
+  public  static final String MEDIA_DOWNLOAD_WIFI_PREF         = "pref_media_download_wifi";
+  public  static final String MEDIA_DOWNLOAD_ROAMING_PREF      = "pref_media_download_roaming";
+
+  public  static final String SYSTEM_EMOJI_PREF                = "pref_system_emoji";
+  private static final String MULTI_DEVICE_PROVISIONED_PREF    = "pref_multi_device";
+  public  static final String DIRECT_CAPTURE_CAMERA_ID         = "pref_direct_capture_camera_id";
+
+  public static void setDirectCaptureCameraId(Context context, int value) {
+    setIntegerPrefrence(context, DIRECT_CAPTURE_CAMERA_ID, value);
+  }
+
+  @SuppressWarnings("deprecation")
+  public static int getDirectCaptureCameraId(Context context) {
+    return getIntegerPreference(context, DIRECT_CAPTURE_CAMERA_ID, CameraInfo.CAMERA_FACING_FRONT);
+  }
+
+  public static void setMultiDevice(Context context, boolean value) {
+    setBooleanPreference(context, MULTI_DEVICE_PROVISIONED_PREF, value);
+  }
+
+  public static boolean isMultiDevice(Context context) {
+    return getBooleanPreference(context, MULTI_DEVICE_PROVISIONED_PREF, false);
+  }
+
+  public static boolean isBlockingIdentityUpdates(Context context) {
+    return getBooleanPreference(context, BLOCKING_IDENTITY_CHANGES_PREF, true);
+  }
+
+  public static void setBlockingIdentityUpdates(Context context, boolean value) {
+    setBooleanPreference(context, BLOCKING_IDENTITY_CHANGES_PREF, value);
+  }
+
+  public static void setSignedPreKeyFailureCount(Context context, int value) {
+    setIntegerPrefrence(context, SIGNED_PREKEY_FAILURE_COUNT_PREF, value);
+  }
+
+  public static int getSignedPreKeyFailureCount(Context context) {
+    return getIntegerPreference(context, SIGNED_PREKEY_FAILURE_COUNT_PREF, 0);
+  }
+
+  public static NotificationPrivacyPreference getNotificationPrivacy(Context context) {
+    return new NotificationPrivacyPreference(getStringPreference(context, NOTIFICATION_PRIVACY_PREF, "all"));
+  }
+
+  public static boolean isNewContactsNotificationEnabled(Context context) {
+    return getBooleanPreference(context, NEW_CONTACTS_NOTIFICATIONS, true);
+  }
 
   public static long getRatingLaterTimestamp(Context context) {
     return getLongPreference(context, RATING_LATER_PREF, 0);
@@ -153,6 +222,14 @@ public class TextSecurePreferences {
 
   public static boolean isInThreadNotifications(Context context) {
     return getBooleanPreference(context, IN_THREAD_NOTIFICATION_PREF, true);
+  }
+
+  public static long getSignedPreKeyRotationTime(Context context) {
+    return getLongPreference(context, SIGNED_PREKEY_ROTATION_TIME_PREF, 0L);
+  }
+
+  public static void setSignedPreKeyRotationTime(Context context, long value) {
+    setLongPreference(context, SIGNED_PREKEY_ROTATION_TIME_PREF, value);
   }
 
   public static long getDirectoryRefreshTime(Context context) {
@@ -319,7 +396,15 @@ public class TextSecurePreferences {
     if (!setIntegerPrefrenceBlocking(context, LAST_VERSION_CODE_PREF, versionCode)) {
       throw new IOException("couldn't write version code to sharedpreferences");
     }
- }
+  }
+
+  public static int getLastExperienceVersionCode(Context context) {
+    return getIntegerPreference(context, LAST_EXPERIENCE_VERSION_PREF, 0);
+  }
+
+  public static void setLastExperienceVersionCode(Context context, int versionCode) {
+    setIntegerPrefrence(context, LAST_EXPERIENCE_VERSION_PREF, versionCode);
+  }
 
   public static String getTheme(Context context) {
     return getStringPreference(context, THEME_PREF, "light");
@@ -382,6 +467,14 @@ public class TextSecurePreferences {
     setBooleanPreference(context, PROMPTED_DEFAULT_SMS_PREF, value);
   }
 
+  public static boolean hasPromptedShare(Context context) {
+    return getBooleanPreference(context, PROMPTED_SHARE_PREF, false);
+  }
+
+  public static void setPromptedShare(Context context, boolean value) {
+    setBooleanPreference(context, PROMPTED_SHARE_PREF, value);
+  }
+
   public static boolean isInterceptAllMmsEnabled(Context context) {
     return getBooleanPreference(context, ALL_MMS_PREF, true);
   }
@@ -426,6 +519,28 @@ public class TextSecurePreferences {
     return Integer.parseInt(getStringPreference(context, THREAD_TRIM_LENGTH, "500"));
   }
 
+  public static boolean isSystemEmojiPreferred(Context context) {
+    return getBooleanPreference(context, SYSTEM_EMOJI_PREF, false);
+  }
+
+  public static @NonNull Set<String> getMobileMediaDownloadAllowed(Context context) {
+    return getMediaDownloadAllowed(context, MEDIA_DOWNLOAD_MOBILE_PREF, R.array.pref_media_download_mobile_data_default);
+  }
+
+  public static @NonNull Set<String> getWifiMediaDownloadAllowed(Context context) {
+    return getMediaDownloadAllowed(context, MEDIA_DOWNLOAD_WIFI_PREF, R.array.pref_media_download_wifi_default);
+  }
+
+  public static @NonNull Set<String> getRoamingMediaDownloadAllowed(Context context) {
+    return getMediaDownloadAllowed(context, MEDIA_DOWNLOAD_ROAMING_PREF, R.array.pref_media_download_roaming_default);
+  }
+
+  private static @NonNull Set<String> getMediaDownloadAllowed(Context context, String key, @ArrayRes int defaultValuesRes) {
+    return getStringSetPreference(context,
+                                  key,
+                                  new HashSet<>(Arrays.asList(context.getResources().getStringArray(defaultValuesRes))));
+  }
+
   public static void setBooleanPreference(Context context, String key, boolean value) {
     PreferenceManager.getDefaultSharedPreferences(context).edit().putBoolean(key, value).apply();
   }
@@ -460,5 +575,16 @@ public class TextSecurePreferences {
 
   private static void setLongPreference(Context context, String key, long value) {
     PreferenceManager.getDefaultSharedPreferences(context).edit().putLong(key, value).apply();
+  }
+
+  private static Set<String> getStringSetPreference(Context context, String key, Set<String> defaultValues) {
+    final SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+    if (prefs.contains(key)) {
+      return SharedPreferenceCompat.getStringSet(PreferenceManager.getDefaultSharedPreferences(context),
+                                                 key,
+                                                 Collections.<String>emptySet());
+    } else {
+      return defaultValues;
+    }
   }
 }

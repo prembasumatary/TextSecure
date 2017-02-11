@@ -18,6 +18,7 @@ package org.thoughtcrime.securesms;
 
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.os.Build.VERSION;
 import android.os.Bundle;
 import android.preference.Preference;
 import android.support.annotation.NonNull;
@@ -32,7 +33,7 @@ import org.thoughtcrime.securesms.preferences.AppProtectionPreferenceFragment;
 import org.thoughtcrime.securesms.preferences.AppearancePreferenceFragment;
 import org.thoughtcrime.securesms.preferences.NotificationsPreferenceFragment;
 import org.thoughtcrime.securesms.preferences.SmsMmsPreferenceFragment;
-import org.thoughtcrime.securesms.preferences.StoragePreferenceFragment;
+import org.thoughtcrime.securesms.preferences.ChatsPreferenceFragment;
 import org.thoughtcrime.securesms.service.KeyCachingService;
 import org.thoughtcrime.securesms.util.DynamicLanguage;
 import org.thoughtcrime.securesms.util.DynamicTheme;
@@ -54,7 +55,7 @@ public class ApplicationPreferencesActivity extends PassphraseRequiredActionBarA
   private static final String PREFERENCE_CATEGORY_NOTIFICATIONS  = "preference_category_notifications";
   private static final String PREFERENCE_CATEGORY_APP_PROTECTION = "preference_category_app_protection";
   private static final String PREFERENCE_CATEGORY_APPEARANCE     = "preference_category_appearance";
-  private static final String PREFERENCE_CATEGORY_STORAGE        = "preference_category_storage";
+  private static final String PREFERENCE_CATEGORY_CHATS          = "preference_category_chats";
   private static final String PREFERENCE_CATEGORY_DEVICES        = "preference_category_devices";
   private static final String PREFERENCE_CATEGORY_ADVANCED       = "preference_category_advanced";
 
@@ -70,7 +71,10 @@ public class ApplicationPreferencesActivity extends PassphraseRequiredActionBarA
   @Override
   protected void onCreate(Bundle icicle, @NonNull MasterSecret masterSecret) {
     this.getSupportActionBar().setDisplayHomeAsUpEnabled(true);
-    initFragment(android.R.id.content, new ApplicationPreferenceFragment(), masterSecret);
+
+    if (icicle == null) {
+      initFragment(android.R.id.content, new ApplicationPreferenceFragment(), masterSecret);
+    }
   }
 
   @Override
@@ -105,9 +109,11 @@ public class ApplicationPreferencesActivity extends PassphraseRequiredActionBarA
   @Override
   public void onSharedPreferenceChanged(SharedPreferences sharedPreferences, String key) {
     if (key.equals(TextSecurePreferences.THEME_PREF)) {
-      dynamicTheme.onResume(this);
+      if (VERSION.SDK_INT >= 11) recreate();
+      else                       dynamicTheme.onResume(this);
     } else if (key.equals(TextSecurePreferences.LANGUAGE_PREF)) {
-      dynamicLanguage.onResume(this);
+      if (VERSION.SDK_INT >= 11) recreate();
+      else                       dynamicLanguage.onResume(this);
 
       Intent intent = new Intent(this, KeyCachingService.class);
       intent.setAction(KeyCachingService.LOCALE_CHANGE_EVENT);
@@ -130,10 +136,10 @@ public class ApplicationPreferencesActivity extends PassphraseRequiredActionBarA
         .setOnPreferenceClickListener(new CategoryClickListener(masterSecret, PREFERENCE_CATEGORY_APP_PROTECTION));
       this.findPreference(PREFERENCE_CATEGORY_APPEARANCE)
         .setOnPreferenceClickListener(new CategoryClickListener(masterSecret, PREFERENCE_CATEGORY_APPEARANCE));
-      this.findPreference(PREFERENCE_CATEGORY_STORAGE)
-        .setOnPreferenceClickListener(new CategoryClickListener(masterSecret, PREFERENCE_CATEGORY_STORAGE));
-//      this.findPreference(PREFERENCE_CATEGORY_DEVICES)
-//        .setOnPreferenceClickListener(new CategoryClickListener(masterSecret, PREFERENCE_CATEGORY_DEVICES));
+      this.findPreference(PREFERENCE_CATEGORY_CHATS)
+        .setOnPreferenceClickListener(new CategoryClickListener(masterSecret, PREFERENCE_CATEGORY_CHATS));
+      this.findPreference(PREFERENCE_CATEGORY_DEVICES)
+        .setOnPreferenceClickListener(new CategoryClickListener(masterSecret, PREFERENCE_CATEGORY_DEVICES));
       this.findPreference(PREFERENCE_CATEGORY_ADVANCED)
         .setOnPreferenceClickListener(new CategoryClickListener(masterSecret, PREFERENCE_CATEGORY_ADVANCED));
     }
@@ -143,6 +149,7 @@ public class ApplicationPreferencesActivity extends PassphraseRequiredActionBarA
       super.onResume();
       ((ApplicationPreferencesActivity) getActivity()).getSupportActionBar().setTitle(R.string.text_secure_normal__menu_settings);
       setCategorySummaries();
+      setCategoryVisibility();
     }
 
     private void setCategorySummaries() {
@@ -154,8 +161,15 @@ public class ApplicationPreferencesActivity extends PassphraseRequiredActionBarA
           .setSummary(AppProtectionPreferenceFragment.getSummary(getActivity()));
       this.findPreference(PREFERENCE_CATEGORY_APPEARANCE)
           .setSummary(AppearancePreferenceFragment.getSummary(getActivity()));
-      this.findPreference(PREFERENCE_CATEGORY_STORAGE)
-          .setSummary(StoragePreferenceFragment.getSummary(getActivity()));
+      this.findPreference(PREFERENCE_CATEGORY_CHATS)
+          .setSummary(ChatsPreferenceFragment.getSummary(getActivity()));
+    }
+
+    private void setCategoryVisibility() {
+      Preference devicePreference = this.findPreference(PREFERENCE_CATEGORY_DEVICES);
+      if (devicePreference != null && !TextSecurePreferences.isPushRegistered(getActivity())) {
+        getPreferenceScreen().removePreference(devicePreference);
+      }
     }
 
     private class CategoryClickListener implements Preference.OnPreferenceClickListener {
@@ -184,11 +198,11 @@ public class ApplicationPreferencesActivity extends PassphraseRequiredActionBarA
         case PREFERENCE_CATEGORY_APPEARANCE:
           fragment = new AppearancePreferenceFragment();
           break;
-        case PREFERENCE_CATEGORY_STORAGE:
-          fragment = new StoragePreferenceFragment();
+        case PREFERENCE_CATEGORY_CHATS:
+          fragment = new ChatsPreferenceFragment();
           break;
         case PREFERENCE_CATEGORY_DEVICES:
-          Intent intent = new Intent(getActivity(), DeviceListActivity.class);
+          Intent intent = new Intent(getActivity(), DeviceActivity.class);
           startActivity(intent);
           break;
         case PREFERENCE_CATEGORY_ADVANCED:

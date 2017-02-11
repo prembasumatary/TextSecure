@@ -1,15 +1,16 @@
 package org.thoughtcrime.securesms;
 
-import android.content.Context;
+import android.content.ActivityNotFoundException;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
-import android.telephony.TelephonyManager;
+import android.support.v7.app.AlertDialog;
 import android.text.Editable;
 import android.text.TextUtils;
 import android.text.TextWatcher;
 import android.util.Log;
+import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.widget.ArrayAdapter;
@@ -18,7 +19,6 @@ import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import com.afollestad.materialdialogs.AlertDialogWrapper;
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.GooglePlayServicesUtil;
 import com.google.i18n.phonenumbers.AsYouTypeFormatter;
@@ -30,7 +30,7 @@ import org.thoughtcrime.securesms.crypto.MasterSecret;
 import org.thoughtcrime.securesms.util.Dialogs;
 import org.thoughtcrime.securesms.util.TextSecurePreferences;
 import org.thoughtcrime.securesms.util.Util;
-import org.whispersystems.textsecure.api.util.PhoneNumberFormatter;
+import org.whispersystems.signalservice.api.util.PhoneNumberFormatter;
 
 /**
  * The register account activity.  Prompts ths user for their registration information
@@ -42,6 +42,7 @@ import org.whispersystems.textsecure.api.util.PhoneNumberFormatter;
 public class RegistrationActivity extends BaseActionBarActivity {
 
   private static final int PICK_COUNTRY = 1;
+  private static final String TAG = RegistrationActivity.class.getSimpleName();
 
   private AsYouTypeFormatter   countryFormatter;
   private ArrayAdapter<String> countrySpinnerAdapter;
@@ -58,7 +59,7 @@ public class RegistrationActivity extends BaseActionBarActivity {
     super.onCreate(icicle);
     setContentView(R.layout.registration_activity);
 
-    getSupportActionBar().setTitle(getString(R.string.RegistrationActivity_connect_with_textsecure));
+    getSupportActionBar().setTitle(getString(R.string.RegistrationActivity_connect_with_signal));
 
     initializeResources();
     initializeSpinner();
@@ -100,7 +101,11 @@ public class RegistrationActivity extends BaseActionBarActivity {
         intent.setAction(Intent.ACTION_VIEW);
         intent.addCategory(Intent.CATEGORY_BROWSABLE);
         intent.setData(Uri.parse("https://twilio.com"));
-        startActivity(intent);
+        try {
+          startActivity(intent);
+        } catch (ActivityNotFoundException e) {
+          Log.w(TAG,e);
+        }
       }
     });
   }
@@ -122,6 +127,17 @@ public class RegistrationActivity extends BaseActionBarActivity {
         return true;
       }
     });
+    this.countrySpinner.setOnKeyListener(new View.OnKeyListener() {
+      @Override
+      public boolean onKey(View v, int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER && event.getAction() == KeyEvent.ACTION_UP) {
+          Intent intent = new Intent(RegistrationActivity.this, CountrySelectionActivity.class);
+          startActivityForResult(intent, PICK_COUNTRY);
+          return true;
+        }
+        return false;
+      }
+    });
   }
 
   private void initializeNumber() {
@@ -133,18 +149,18 @@ public class RegistrationActivity extends BaseActionBarActivity {
         Phonenumber.PhoneNumber localNumberObject = numberUtil.parse(localNumber, null);
 
         if (localNumberObject != null) {
-          this.countryCode.setText(localNumberObject.getCountryCode()+"");
-          this.number.setText(localNumberObject.getNationalNumber()+"");
+          this.countryCode.setText(String.valueOf(localNumberObject.getCountryCode()));
+          this.number.setText(String.valueOf(localNumberObject.getNationalNumber()));
         }
       } else {
-        String simCountryIso = ((TelephonyManager)getSystemService(Context.TELEPHONY_SERVICE)).getSimCountryIso();
+        String simCountryIso = Util.getSimCountryIso(this);
 
         if (!TextUtils.isEmpty(simCountryIso)) {
-          this.countryCode.setText(numberUtil.getCountryCodeForRegion(simCountryIso.toUpperCase())+"");
+          this.countryCode.setText(numberUtil.getCountryCodeForRegion(simCountryIso)+"");
         }
       }
     } catch (NumberParseException npe) {
-      Log.w("CreateAccountActivity", npe);
+      Log.w(TAG, npe);
     }
   }
 
@@ -207,7 +223,7 @@ public class RegistrationActivity extends BaseActionBarActivity {
         return;
       }
 
-      AlertDialogWrapper.Builder dialog = new AlertDialogWrapper.Builder(self);
+      AlertDialog.Builder dialog = new AlertDialog.Builder(self);
       dialog.setTitle(PhoneNumberFormatter.getInternationalFormatFromE164(e164number));
       dialog.setMessage(R.string.RegistrationActivity_we_will_now_verify_that_the_following_number_is_associated_with_your_device_s);
       dialog.setPositiveButton(getString(R.string.RegistrationActivity_continue),

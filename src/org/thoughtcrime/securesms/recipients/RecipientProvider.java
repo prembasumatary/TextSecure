@@ -38,7 +38,7 @@ import org.thoughtcrime.securesms.util.GroupUtil;
 import org.thoughtcrime.securesms.util.LRUCache;
 import org.thoughtcrime.securesms.util.ListenableFutureTask;
 import org.thoughtcrime.securesms.util.Util;
-import org.whispersystems.libaxolotl.util.guava.Optional;
+import org.whispersystems.libsignal.util.guava.Optional;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -49,7 +49,7 @@ import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 
-public class RecipientProvider {
+class RecipientProvider {
 
   private static final String TAG = RecipientProvider.class.getSimpleName();
 
@@ -70,9 +70,11 @@ public class RecipientProvider {
                                        ContactColors.UNKNOWN_COLOR));
   }};
 
-  Recipient getRecipient(Context context, long recipientId, boolean asynchronous) {
+  @NonNull Recipient getRecipient(Context context, long recipientId, boolean asynchronous) {
     Recipient cachedRecipient = recipientCache.get(recipientId);
-    if (cachedRecipient != null && !cachedRecipient.isStale()) return cachedRecipient;
+    if (cachedRecipient != null && !cachedRecipient.isStale() && (asynchronous || !cachedRecipient.isResolving())) {
+      return cachedRecipient;
+    }
 
     String number = CanonicalAddressDatabase.getInstance(context).getAddressFromId(recipientId);
 
@@ -86,9 +88,11 @@ public class RecipientProvider {
     return cachedRecipient;
   }
 
-  Recipients getRecipients(Context context, long[] recipientIds, boolean asynchronous) {
+  @NonNull Recipients getRecipients(Context context, long[] recipientIds, boolean asynchronous) {
     Recipients cachedRecipients = recipientsCache.get(new RecipientIds(recipientIds));
-    if (cachedRecipients != null && !cachedRecipients.isStale()) return cachedRecipients;
+    if (cachedRecipients != null && !cachedRecipients.isStale() && (asynchronous || !cachedRecipients.isResolving())) {
+      return cachedRecipients;
+    }
 
     List<Recipient> recipientList = new LinkedList<>();
 
@@ -138,13 +142,18 @@ public class RecipientProvider {
 
     try {
       if (cursor != null && cursor.moveToFirst()) {
-        Uri          contactUri   = Contacts.getLookupUri(cursor.getLong(2), cursor.getString(1));
-        String       name         = cursor.getString(3).equals(cursor.getString(0)) ? null : cursor.getString(0);
-        ContactPhoto contactPhoto = ContactPhotoFactory.getContactPhoto(context,
-                                                                        Uri.withAppendedPath(Contacts.CONTENT_URI, cursor.getLong(2) + ""),
-                                                                        name);
+        final String resultNumber = cursor.getString(3);
+        if (resultNumber != null) {
+          Uri          contactUri   = Contacts.getLookupUri(cursor.getLong(2), cursor.getString(1));
+          String       name         = resultNumber.equals(cursor.getString(0)) ? null : cursor.getString(0);
+          ContactPhoto contactPhoto = ContactPhotoFactory.getContactPhoto(context,
+                                                                          Uri.withAppendedPath(Contacts.CONTENT_URI, cursor.getLong(2) + ""),
+                                                                          name);
 
-        return new RecipientDetails(cursor.getString(0), cursor.getString(3), contactUri, contactPhoto, color);
+          return new RecipientDetails(cursor.getString(0), resultNumber, contactUri, contactPhoto, color);
+        } else {
+          Log.w(TAG, "resultNumber is null");
+        }
       }
     } finally {
       if (cursor != null)
@@ -157,18 +166,24 @@ public class RecipientProvider {
 
   private @NonNull RecipientDetails getGroupRecipientDetails(Context context, String groupId) {
     try {
-      GroupDatabase.GroupRecord record  = DatabaseFactory.getGroupDatabase(context)
-                                                         .getGroup(GroupUtil.getDecodedId(groupId));
+      GroupDatabase.GroupRecord record = DatabaseFactory.getGroupDatabase(context)
+                                                        .getGroup(GroupUtil.getDecodedId(groupId));
 
       if (record != null) {
         ContactPhoto contactPhoto = ContactPhotoFactory.getGroupContactPhoto(record.getAvatar());
-        return new RecipientDetails(record.getTitle(), groupId, null, contactPhoto, null);
+        String       title        = record.getTitle();
+
+        if (title == null) {
+          title = context.getString(R.string.RecipientProvider_unnamed_group);;
+        }
+
+        return new RecipientDetails(title, groupId, null, contactPhoto, null);
       }
 
-      return new RecipientDetails(null, groupId, null, ContactPhotoFactory.getDefaultGroupPhoto(), null);
+      return new RecipientDetails(context.getString(R.string.RecipientProvider_unnamed_group), groupId, null, ContactPhotoFactory.getDefaultGroupPhoto(), null);
     } catch (IOException e) {
       Log.w("RecipientProvider", e);
-      return new RecipientDetails(null, groupId, null, ContactPhotoFactory.getDefaultGroupPhoto(), null);
+      return new RecipientDetails(context.getString(R.string.RecipientProvider_unnamed_group), groupId, null, ContactPhotoFactory.getDefaultGroupPhoto(), null);
     }
   }
 

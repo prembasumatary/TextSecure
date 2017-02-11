@@ -18,7 +18,6 @@ package org.thoughtcrime.securesms.mms;
 
 import android.content.Context;
 import android.net.ConnectivityManager;
-import android.net.NetworkInfo;
 import android.telephony.TelephonyManager;
 import android.text.TextUtils;
 import android.util.Log;
@@ -38,11 +37,12 @@ import org.apache.http.impl.client.LaxRedirectStrategy;
 import org.apache.http.impl.conn.BasicHttpClientConnectionManager;
 import org.apache.http.message.BasicHeader;
 import org.thoughtcrime.securesms.database.ApnDatabase;
-import org.thoughtcrime.securesms.util.TelephonyUtil;
 import org.thoughtcrime.securesms.util.Conversions;
+import org.thoughtcrime.securesms.util.ServiceUtil;
+import org.thoughtcrime.securesms.util.TelephonyUtil;
 import org.thoughtcrime.securesms.util.TextSecurePreferences;
 import org.thoughtcrime.securesms.util.Util;
-import org.whispersystems.libaxolotl.util.guava.Optional;
+import org.whispersystems.libsignal.util.guava.Optional;
 
 import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
@@ -52,8 +52,10 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.InetAddress;
 import java.net.URL;
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Set;
 
 @SuppressWarnings("deprecation")
 public abstract class LegacyMmsConnection {
@@ -87,8 +89,20 @@ public abstract class LegacyMmsConnection {
     }
   }
 
-  protected boolean isCdmaDevice() {
-    return ((TelephonyManager)context.getSystemService(Context.TELEPHONY_SERVICE)).getPhoneType() == TelephonyManager.PHONE_TYPE_CDMA;
+  protected boolean isDirectConnect() {
+    // We think Sprint supports direct connection over wifi/data, but not Verizon
+    Set<String> sprintMccMncs = new HashSet<String>() {{
+      add("312530");
+      add("311880");
+      add("311870");
+      add("311490");
+      add("310120");
+      add("316010");
+      add("312190");
+    }};
+
+    return ServiceUtil.getTelephonyManager(context).getPhoneType() == TelephonyManager.PHONE_TYPE_CDMA &&
+           sprintMccMncs.contains(TelephonyUtil.getMccMnc(context));
   }
 
   @SuppressWarnings("TryWithIdenticalCatches")
@@ -185,6 +199,10 @@ public abstract class LegacyMmsConnection {
       if (response.getStatusLine().getStatusCode() == 200) {
         return parseResponse(response.getEntity().getContent());
       }
+    } catch (NullPointerException npe) {
+      // TODO determine root cause
+      // see: https://github.com/WhisperSystems/Signal-Android/issues/4379
+      throw new IOException(npe);
     } finally {
       if (response != null) response.close();
       if (client != null)   client.close();
@@ -194,7 +212,8 @@ public abstract class LegacyMmsConnection {
   }
 
   protected List<Header> getBaseHeaders() {
-    final String number = TelephonyUtil.getManager(context).getLine1Number();
+    final String                number    = TelephonyUtil.getManager(context).getLine1Number(); ;
+
     return new LinkedList<Header>() {{
       add(new BasicHeader("Accept", "*/*, application/vnd.wap.mms-message, application/vnd.wap.sic"));
       add(new BasicHeader("x-wap-profile", "http://www.google.com/oha/rdf/ua-profile-kila.xml"));

@@ -4,6 +4,7 @@ import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.os.IBinder;
+import android.support.annotation.Nullable;
 import android.util.Log;
 
 import org.thoughtcrime.securesms.ApplicationContext;
@@ -14,10 +15,10 @@ import org.thoughtcrime.securesms.util.TextSecurePreferences;
 import org.whispersystems.jobqueue.requirements.NetworkRequirement;
 import org.whispersystems.jobqueue.requirements.NetworkRequirementProvider;
 import org.whispersystems.jobqueue.requirements.RequirementListener;
-import org.whispersystems.libaxolotl.InvalidVersionException;
-import org.whispersystems.textsecure.api.TextSecureMessagePipe;
-import org.whispersystems.textsecure.api.TextSecureMessageReceiver;
-import org.whispersystems.textsecure.api.messages.TextSecureEnvelope;
+import org.whispersystems.libsignal.InvalidVersionException;
+import org.whispersystems.signalservice.api.SignalServiceMessagePipe;
+import org.whispersystems.signalservice.api.SignalServiceMessageReceiver;
+import org.whispersystems.signalservice.api.messages.SignalServiceEnvelope;
 
 import java.util.LinkedList;
 import java.util.List;
@@ -39,10 +40,12 @@ public class MessageRetrievalService extends Service implements Runnable, Inject
   private NetworkRequirementProvider networkRequirementProvider;
 
   @Inject
-  public TextSecureMessageReceiver receiver;
+  public SignalServiceMessageReceiver receiver;
 
   private int          activeActivities = 0;
   private List<Intent> pushPending      = new LinkedList<>();
+
+  public static SignalServiceMessagePipe pipe = null;
 
   @Override
   public void onCreate() {
@@ -73,16 +76,16 @@ public class MessageRetrievalService extends Service implements Runnable, Inject
       waitForConnectionNecessary();
 
       Log.w(TAG, "Making websocket connection....");
-      TextSecureMessagePipe pipe = receiver.createMessagePipe();
+      pipe = receiver.createMessagePipe();
 
       try {
         while (isConnectionNecessary()) {
           try {
             Log.w(TAG, "Reading message...");
             pipe.read(REQUEST_TIMEOUT_MINUTES, TimeUnit.MINUTES,
-                      new TextSecureMessagePipe.MessagePipeCallback() {
+                      new SignalServiceMessagePipe.MessagePipeCallback() {
                         @Override
-                        public void onMessage(TextSecureEnvelope envelope) {
+                        public void onMessage(SignalServiceEnvelope envelope) {
                           Log.w(TAG, "Retrieved envelope! " + envelope.getSource());
 
                           PushContentReceiveJob receiveJob = new PushContentReceiveJob(MessageRetrievalService.this);
@@ -162,7 +165,7 @@ public class MessageRetrievalService extends Service implements Runnable, Inject
     }
   }
 
-  private void shutdown(TextSecureMessagePipe pipe) {
+  private void shutdown(SignalServiceMessagePipe pipe) {
     try {
       pipe.shutdown();
     } catch (Throwable t) {
@@ -180,5 +183,9 @@ public class MessageRetrievalService extends Service implements Runnable, Inject
     Intent intent = new Intent(activity, MessageRetrievalService.class);
     intent.setAction(MessageRetrievalService.ACTION_ACTIVITY_FINISHED);
     activity.startService(intent);
+  }
+
+  public static @Nullable SignalServiceMessagePipe getPipe() {
+    return pipe;
   }
 }

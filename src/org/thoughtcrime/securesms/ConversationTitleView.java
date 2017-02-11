@@ -10,6 +10,7 @@ import android.widget.TextView;
 
 import org.thoughtcrime.securesms.recipients.Recipient;
 import org.thoughtcrime.securesms.recipients.Recipients;
+import org.thoughtcrime.securesms.util.ViewUtil;
 
 public class ConversationTitleView extends LinearLayout {
 
@@ -33,8 +34,10 @@ public class ConversationTitleView extends LinearLayout {
 
     this.title    = (TextView) findViewById(R.id.title);
     this.subtitle = (TextView) findViewById(R.id.subtitle);
-  }
 
+    ViewUtil.setTextViewGravityStart(this.title, getContext());
+    ViewUtil.setTextViewGravityStart(this.subtitle, getContext());
+  }
 
   public void setTitle(@Nullable Recipients recipients) {
     if      (recipients == null)             setComposeTitle();
@@ -68,11 +71,7 @@ public class ConversationTitleView extends LinearLayout {
         this.subtitle.setVisibility(View.VISIBLE);
       }
     } else {
-      String groupName = (!TextUtils.isEmpty(recipient.getName())) ?
-                         recipient.getName() :
-                         getContext().getString(R.string.ConversationActivity_unnamed_group);
-
-      this.title.setText(groupName);
+      this.title.setText(recipient.getName());
       this.subtitle.setText(null);
       this.subtitle.setVisibility(View.GONE);
     }
@@ -82,8 +81,7 @@ public class ConversationTitleView extends LinearLayout {
     int size = recipients.getRecipientsList().size();
 
     title.setText(getContext().getString(R.string.ConversationActivity_group_conversation));
-    subtitle.setText((size == 1) ? getContext().getString(R.string.ConversationActivity_d_recipients_in_group_singular) :
-                         String.format(getContext().getString(R.string.ConversationActivity_d_recipients_in_group), size));
+    subtitle.setText(getContext().getResources().getQuantityString(R.plurals.ConversationActivity_d_recipients_in_group, size, size));
     subtitle.setVisibility(View.VISIBLE);
   }
 

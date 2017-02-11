@@ -4,48 +4,46 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
+import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
-import android.text.SpannableStringBuilder;
+import android.support.v4.app.TaskStackBuilder;
 
 import org.thoughtcrime.securesms.ConversationActivity;
-import org.thoughtcrime.securesms.ConversationPopupActivity;
+import org.thoughtcrime.securesms.mms.SlideDeck;
 import org.thoughtcrime.securesms.recipients.Recipient;
 import org.thoughtcrime.securesms.recipients.Recipients;
-import org.thoughtcrime.securesms.util.Util;
 
 public class NotificationItem {
 
-  private final Recipients   recipients;
-  private final Recipient    individualRecipient;
-  private final Recipients   threadRecipients;
-  private final long         threadId;
-  private final CharSequence text;
-  private final Uri          image;
-  private final long         timestamp;
+  private final @NonNull  Recipients        recipients;
+  private final @NonNull  Recipient         individualRecipient;
+  private final @Nullable Recipients        threadRecipients;
+  private final long                        threadId;
+  private final @Nullable CharSequence      text;
+  private final long                        timestamp;
+  private final @Nullable SlideDeck         slideDeck;
 
-  public NotificationItem(Recipient individualRecipient, Recipients recipients,
-                          Recipients threadRecipients, long threadId,
-                          CharSequence text, Uri image, long timestamp)
+  public NotificationItem(@NonNull   Recipient individualRecipient,
+                          @NonNull   Recipients recipients,
+                          @Nullable  Recipients threadRecipients,
+                          long threadId, @Nullable CharSequence text, long timestamp,
+                          @Nullable SlideDeck slideDeck)
   {
     this.individualRecipient = individualRecipient;
     this.recipients          = recipients;
     this.threadRecipients    = threadRecipients;
     this.text                = text;
-    this.image               = image;
     this.threadId            = threadId;
     this.timestamp           = timestamp;
+    this.slideDeck           = slideDeck;
   }
 
-  public Recipients getRecipients() {
+  public @NonNull  Recipients getRecipients() {
     return threadRecipients == null ? recipients : threadRecipients;
   }
 
-  public Recipient getIndividualRecipient() {
+  public @NonNull  Recipient getIndividualRecipient() {
     return individualRecipient;
-  }
-
-  public String getIndividualRecipientName() {
-    return individualRecipient.toShortString();
   }
 
   public CharSequence getText() {
@@ -56,29 +54,12 @@ public class NotificationItem {
     return timestamp;
   }
 
-  public Uri getImage() {
-    return image;
-  }
-
-  public boolean hasImage() {
-    return image != null;
-  }
-
   public long getThreadId() {
     return threadId;
   }
 
-  public CharSequence getBigStyleSummary() {
-    return (text == null) ? "" : text;
-  }
-
-  public CharSequence getTickerText() {
-    SpannableStringBuilder builder = new SpannableStringBuilder();
-    builder.append(Util.getBoldedString(getIndividualRecipientName()));
-    builder.append(": ");
-    builder.append(getText());
-
-    return builder;
+  public @Nullable SlideDeck getSlideDeck() {
+    return slideDeck;
   }
 
   public PendingIntent getPendingIntent(Context context) {
@@ -89,7 +70,9 @@ public class NotificationItem {
     intent.putExtra("thread_id", threadId);
     intent.setData((Uri.parse("custom://"+System.currentTimeMillis())));
 
-    return PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT);
+    return TaskStackBuilder.create(context)
+                           .addNextIntentWithParentStack(intent)
+                           .getPendingIntent(0, PendingIntent.FLAG_UPDATE_CURRENT);
   }
 
 

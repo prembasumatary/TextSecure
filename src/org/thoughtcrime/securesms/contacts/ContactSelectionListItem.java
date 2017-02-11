@@ -5,7 +5,7 @@ import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.view.View;
 import android.widget.CheckBox;
-import android.widget.RelativeLayout;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import org.thoughtcrime.securesms.R;
@@ -13,8 +13,9 @@ import org.thoughtcrime.securesms.components.AvatarImageView;
 import org.thoughtcrime.securesms.recipients.Recipient;
 import org.thoughtcrime.securesms.recipients.RecipientFactory;
 import org.thoughtcrime.securesms.recipients.Recipients;
+import org.thoughtcrime.securesms.util.ViewUtil;
 
-public class ContactSelectionListItem extends RelativeLayout implements Recipients.RecipientsModifiedListener {
+public class ContactSelectionListItem extends LinearLayout implements Recipients.RecipientsModifiedListener {
 
   private AvatarImageView contactPhotoImage;
   private TextView        numberView;
@@ -34,10 +35,6 @@ public class ContactSelectionListItem extends RelativeLayout implements Recipien
     super(context, attrs);
   }
 
-  public ContactSelectionListItem(Context context, AttributeSet attrs, int defStyleAttr) {
-    super(context, attrs, defStyleAttr);
-  }
-
   @Override
   protected void onFinishInflate() {
     super.onFinishInflate();
@@ -46,6 +43,8 @@ public class ContactSelectionListItem extends RelativeLayout implements Recipien
     this.labelView         = (TextView)        findViewById(R.id.label);
     this.nameView          = (TextView)        findViewById(R.id.name);
     this.checkBox          = (CheckBox)        findViewById(R.id.check_box);
+
+    ViewUtil.setTextViewGravityStart(this.nameView, getContext());
   }
 
   public void set(long id, int type, String name, String number, String label, int color, boolean multiSelect) {
@@ -58,7 +57,9 @@ public class ContactSelectionListItem extends RelativeLayout implements Recipien
     } else if (!TextUtils.isEmpty(number)) {
       this.recipients = RecipientFactory.getRecipientsFromString(getContext(), number, true);
 
-      if (this.recipients.getPrimaryRecipient().getName() != null) {
+      if (this.recipients.getPrimaryRecipient() != null &&
+          this.recipients.getPrimaryRecipient().getName() != null)
+      {
         name = this.recipients.getPrimaryRecipient().getName();
       }
 

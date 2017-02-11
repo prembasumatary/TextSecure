@@ -3,31 +3,27 @@ package org.thoughtcrime.securesms.util;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Bitmap.CompressFormat;
-import android.graphics.Bitmap.Config;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
-import android.graphics.Color;
 import android.graphics.ImageFormat;
-import android.graphics.Matrix;
-import android.graphics.Paint;
-import android.graphics.PorterDuff;
-import android.graphics.PorterDuffXfermode;
 import android.graphics.Rect;
-import android.graphics.RectF;
 import android.graphics.YuvImage;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
-import android.net.Uri;
-import android.os.Handler;
-import android.os.Looper;
 import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
 import android.util.Log;
 import android.util.Pair;
 
-import com.android.gallery3d.data.Exif;
+import com.bumptech.glide.Glide;
+import com.bumptech.glide.Priority;
+import com.bumptech.glide.load.DecodeFormat;
+import com.bumptech.glide.load.engine.Resource;
+import com.bumptech.glide.load.resource.bitmap.BitmapResource;
+import com.bumptech.glide.load.resource.bitmap.Downsampler;
+import com.bumptech.glide.load.resource.bitmap.FitCenter;
 
-import org.thoughtcrime.securesms.crypto.MasterSecret;
-import org.thoughtcrime.securesms.mms.PartAuthority;
+import org.thoughtcrime.securesms.mms.MediaConstraints;
 
 import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
@@ -36,192 +32,112 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import javax.microedition.khronos.egl.EGL10;
+import javax.microedition.khronos.egl.EGLConfig;
+import javax.microedition.khronos.egl.EGLContext;
+import javax.microedition.khronos.egl.EGLDisplay;
+
 public class BitmapUtil {
+
   private static final String TAG = BitmapUtil.class.getSimpleName();
 
-  private static final int MAX_COMPRESSION_QUALITY  = 95;
-  private static final int MIN_COMPRESSION_QUALITY  = 50;
-  private static final int MAX_COMPRESSION_ATTEMPTS = 4;
+  private static final int MAX_COMPRESSION_QUALITY          = 90;
+  private static final int MIN_COMPRESSION_QUALITY          = 45;
+  private static final int MAX_COMPRESSION_ATTEMPTS         = 5;
+  private static final int MIN_COMPRESSION_QUALITY_DECREASE = 5;
 
-  public static byte[] createScaledBytes(Context context, MasterSecret masterSecret, Uri uri, int maxWidth, int maxHeight, int maxSize)
-      throws IOException, BitmapDecodingException
+  public static <T> byte[] createScaledBytes(Context context, T model, MediaConstraints constraints)
+      throws BitmapDecodingException
   {
-    Bitmap bitmap;
+    int    quality  = MAX_COMPRESSION_QUALITY;
+    int    attempts = 0;
+    byte[] bytes;
+
+    Bitmap scaledBitmap =  Downsampler.AT_MOST.decode(getInputStreamForModel(context, model),
+                                                      Glide.get(context).getBitmapPool(),
+                                                      constraints.getImageMaxWidth(context),
+                                                      constraints.getImageMaxHeight(context),
+                                                      DecodeFormat.PREFER_RGB_565);
+
+    if (scaledBitmap == null) {
+      throw new BitmapDecodingException("Unable to decode image");
+    }
+    
     try {
-      bitmap = createScaledBitmap(context, masterSecret, uri, maxWidth, maxHeight, false);
-    } catch(OutOfMemoryError oome) {
-      Log.w(TAG, "OutOfMemoryError when scaling precisely, doing rough scale to save memory instead");
-      bitmap = createScaledBitmap(context, masterSecret, uri, maxWidth, maxHeight, true);
-    }
-    int quality         = MAX_COMPRESSION_QUALITY;
-    int attempts        = 0;
+      do {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        scaledBitmap.compress(CompressFormat.JPEG, quality, baos);
+        bytes = baos.toByteArray();
 
-    ByteArrayOutputStream baos;
+        Log.w(TAG, "iteration with quality " + quality + " size " + (bytes.length / 1024) + "kb");
+        if (quality == MIN_COMPRESSION_QUALITY) break;
 
-    do {
-      baos = new ByteArrayOutputStream();
-      bitmap.compress(Bitmap.CompressFormat.JPEG, quality, baos);
-
-      quality = Math.max((quality * maxSize) / baos.size(), MIN_COMPRESSION_QUALITY);
-    } while (baos.size() > maxSize && attempts++ < MAX_COMPRESSION_ATTEMPTS);
-
-    Log.w(TAG, "createScaledBytes(" + uri + ") -> quality " + Math.min(quality, MAX_COMPRESSION_QUALITY) + ", " + attempts + " attempt(s)");
-
-    bitmap.recycle();
-
-    if (baos.size() <= maxSize) return baos.toByteArray();
-    else                        throw new IOException("Unable to scale image below: " + baos.size());
-  }
-
-  public static Bitmap createScaledBitmap(Context context, MasterSecret masterSecret, Uri uri, int maxWidth, int maxHeight)
-      throws BitmapDecodingException, IOException
-  {
-    Bitmap bitmap;
-    try {
-      bitmap = createScaledBitmap(context, masterSecret, uri, maxWidth, maxHeight, false);
-    } catch(OutOfMemoryError oome) {
-      Log.w(TAG, "OutOfMemoryError when scaling precisely, doing rough scale to save memory instead");
-      bitmap = createScaledBitmap(context, masterSecret, uri, maxWidth, maxHeight, true);
-    }
-
-    return bitmap;
-  }
-
-  private static Bitmap createScaledBitmap(Context context, MasterSecret masterSecret, Uri uri, int maxWidth, int maxHeight, boolean constrainedMemory)
-      throws IOException, BitmapDecodingException
-  {
-    InputStream is = PartAuthority.getPartStream(context, masterSecret, uri);
-    if (is == null) throw new IOException("Couldn't obtain InputStream");
-    return createScaledBitmap(is,
-                              PartAuthority.getPartStream(context, masterSecret, uri),
-                              PartAuthority.getPartStream(context, masterSecret, uri),
-                              maxWidth, maxHeight, constrainedMemory);
-  }
-
-  private static Bitmap createScaledBitmap(InputStream measure, InputStream orientationStream, InputStream data,
-                                           int maxWidth, int maxHeight, boolean constrainedMemory)
-      throws IOException, BitmapDecodingException
-  {
-    Bitmap bitmap = createScaledBitmap(measure, data, maxWidth, maxHeight, constrainedMemory);
-    return fixOrientation(bitmap, orientationStream);
-  }
-
-  private static Bitmap createScaledBitmap(InputStream measure, InputStream data, int maxWidth, int maxHeight,
-                                           boolean constrainedMemory)
-      throws BitmapDecodingException
-  {
-    final BitmapFactory.Options options = getImageDimensions(measure);
-    return createScaledBitmap(data, maxWidth, maxHeight, options, constrainedMemory);
-  }
-
-  public static Bitmap createScaledBitmap(InputStream measure, InputStream data, float scale)
-      throws BitmapDecodingException
-  {
-    final BitmapFactory.Options options = getImageDimensions(measure);
-    final int outWidth = (int)(options.outWidth * scale);
-    final int outHeight = (int)(options.outHeight * scale);
-    Log.w(TAG, "creating scaled bitmap with scale " + scale + " => " + outWidth + "x" + outHeight);
-    return createScaledBitmap(data, outWidth, outHeight, options, false);
-  }
-
-  public static Bitmap createScaledBitmap(InputStream measure, InputStream data, int maxWidth, int maxHeight)
-      throws BitmapDecodingException
-  {
-    return createScaledBitmap(measure, data, maxWidth, maxHeight, false);
-  }
-
-  private static Bitmap createScaledBitmap(InputStream data, int maxWidth, int maxHeight,
-                                           BitmapFactory.Options options, boolean constrainedMemory)
-      throws BitmapDecodingException
-  {
-    final int imageWidth  = options.outWidth;
-    final int imageHeight = options.outHeight;
-
-    options.inSampleSize       = getScaleFactor(imageWidth, imageHeight, maxWidth, maxHeight, constrainedMemory);
-    options.inJustDecodeBounds = false;
-    options.inPreferredConfig  = constrainedMemory ? Config.RGB_565 : Config.ARGB_8888;
-
-    InputStream is             = new BufferedInputStream(data);
-    Bitmap      roughThumbnail = BitmapFactory.decodeStream(is, null, options);
-    try {
-      is.close();
-    } catch (IOException ioe) {
-      Log.w(TAG, "IOException thrown when closing an images InputStream", ioe);
-    }
-    Log.w(TAG, "rough scale " + (imageWidth) + "x" + (imageHeight) +
-               " => " + (options.outWidth) + "x" + (options.outHeight));
-    if (roughThumbnail == null) {
-      throw new BitmapDecodingException("Decoded stream was null.");
-    }
-    if (constrainedMemory) {
-      return roughThumbnail;
-    }
-
-    if (options.outWidth > maxWidth || options.outHeight > maxHeight) {
-      final float aspectWidth, aspectHeight;
-
-      if (imageWidth == 0 || imageHeight == 0) {
-        aspectWidth = maxWidth;
-        aspectHeight = maxHeight;
-      } else if (options.outWidth >= options.outHeight) {
-        aspectWidth = maxWidth;
-        aspectHeight = (aspectWidth / options.outWidth) * options.outHeight;
-      } else {
-        aspectHeight = maxHeight;
-        aspectWidth = (aspectHeight / options.outHeight) * options.outWidth;
+        int nextQuality = (int)Math.floor(quality * Math.sqrt((double)constraints.getImageMaxSize() / bytes.length));
+        if (quality - nextQuality < MIN_COMPRESSION_QUALITY_DECREASE) {
+          nextQuality = quality - MIN_COMPRESSION_QUALITY_DECREASE;
+        }
+        quality = Math.max(nextQuality, MIN_COMPRESSION_QUALITY);
       }
-
-      final int fineWidth  = Math.round(aspectWidth);
-      final int fineHeight = Math.round(aspectHeight);
-
-      Log.w(TAG, "fine scale " + options.outWidth + "x" + options.outHeight +
-                 " => " + fineWidth + "x" + fineHeight);
-      Bitmap scaledThumbnail = null;
-      try {
-        scaledThumbnail = Bitmap.createScaledBitmap(roughThumbnail, fineWidth, fineHeight, true);
-      } finally {
-        if (roughThumbnail != scaledThumbnail) roughThumbnail.recycle();
+      while (bytes.length > constraints.getImageMaxSize() && attempts++ < MAX_COMPRESSION_ATTEMPTS);
+      if (bytes.length > constraints.getImageMaxSize()) {
+        throw new BitmapDecodingException("Unable to scale image below: " + bytes.length);
       }
-      return scaledThumbnail;
-    } else {
-      return roughThumbnail;
+      Log.w(TAG, "createScaledBytes(" + model.toString() + ") -> quality " + Math.min(quality, MAX_COMPRESSION_QUALITY) + ", " + attempts + " attempt(s)");
+      return bytes;
+    } finally {
+      if (scaledBitmap != null) scaledBitmap.recycle();
     }
   }
 
-  @VisibleForTesting static int getScaleFactor(int inWidth, int inHeight,
-                                               int maxWidth, int maxHeight,
-                                               boolean constrained)
+  public static <T> Bitmap createScaledBitmap(Context context, T model, int maxWidth, int maxHeight)
+      throws BitmapDecodingException
   {
-    int scaler = 1;
-    while (!constrained && ((inWidth / scaler / 2 >= maxWidth) && (inHeight / scaler / 2 >= maxHeight))) {
-      scaler *= 2;
-    }
-    while (constrained && ((inWidth / scaler > maxWidth) || (inHeight / scaler > maxHeight))) {
-      scaler *= 2;
-    }
-    return scaler;
+    final Pair<Integer, Integer> dimensions = getDimensions(getInputStreamForModel(context, model));
+    final Pair<Integer, Integer> clamped    = clampDimensions(dimensions.first, dimensions.second,
+                                                              maxWidth, maxHeight);
+    return createScaledBitmapInto(context, model, clamped.first, clamped.second);
   }
 
-  private static Bitmap fixOrientation(Bitmap bitmap, InputStream orientationStream) throws IOException {
-    final int orientation = Exif.getOrientation(orientationStream);
-    orientationStream.close();
-    if (orientation != 0) {
-      return rotateBitmap(bitmap, orientation);
-    } else {
-      return bitmap;
+  private static <T> InputStream getInputStreamForModel(Context context, T model)
+      throws BitmapDecodingException
+  {
+    try {
+      return Glide.buildStreamModelLoader(model, context)
+                  .getResourceFetcher(model, -1, -1)
+                  .loadData(Priority.NORMAL);
+    } catch (Exception e) {
+      throw new BitmapDecodingException(e);
     }
   }
 
-  public static Bitmap rotateBitmap(Bitmap bitmap, int angle) {
-    if (angle == 0) return bitmap;
-    Matrix matrix = new Matrix();
-    matrix.postRotate(angle);
-    Bitmap rotated = Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), matrix, true);
-    if (rotated != bitmap) bitmap.recycle();
-    return rotated;
+  private static <T> Bitmap createScaledBitmapInto(Context context, T model, int width, int height)
+      throws BitmapDecodingException
+  {
+    final Bitmap rough = Downsampler.AT_LEAST.decode(getInputStreamForModel(context, model),
+                                                     Glide.get(context).getBitmapPool(),
+                                                     width, height,
+                                                     DecodeFormat.PREFER_RGB_565);
+
+    final Resource<Bitmap> resource = BitmapResource.obtain(rough, Glide.get(context).getBitmapPool());
+    final Resource<Bitmap> result   = new FitCenter(context).transform(resource, width, height);
+
+    if (result == null) {
+      throw new BitmapDecodingException("unable to transform Bitmap");
+    }
+    return result.get();
   }
 
-  private static BitmapFactory.Options getImageDimensions(InputStream inputStream) {
+  public static <T> Bitmap createScaledBitmap(Context context, T model, float scale)
+      throws BitmapDecodingException
+  {
+    Pair<Integer, Integer> dimens = getDimensions(getInputStreamForModel(context, model));
+    return createScaledBitmapInto(context, model,
+                                  (int)(dimens.first * scale), (int)(dimens.second * scale));
+  }
+
+  private static BitmapFactory.Options getImageDimensions(InputStream inputStream)
+      throws BitmapDecodingException
+  {
     BitmapFactory.Options options = new BitmapFactory.Options();
     options.inJustDecodeBounds    = true;
     BufferedInputStream fis       = new BufferedInputStream(inputStream);
@@ -231,10 +147,15 @@ public class BitmapUtil {
     } catch (IOException ioe) {
       Log.w(TAG, "failed to close the InputStream after reading image dimensions");
     }
+
+    if (options.outWidth == -1 || options.outHeight == -1) {
+      throw new BitmapDecodingException("Failed to decode image dimensions: " + options.outWidth + ", " + options.outHeight);
+    }
+
     return options;
   }
 
-  public static Pair<Integer, Integer> getDimensions(InputStream inputStream) {
+  public static Pair<Integer, Integer> getDimensions(InputStream inputStream) throws BitmapDecodingException {
     BitmapFactory.Options options = getImageDimensions(inputStream);
     return new Pair<>(options.outWidth, options.outHeight);
   }
@@ -245,41 +166,27 @@ public class BitmapUtil {
     return new ByteArrayInputStream(thumbnailBytes.toByteArray());
   }
 
-  public static byte[] toByteArray(Bitmap bitmap) {
+  public static @Nullable byte[] toByteArray(@Nullable Bitmap bitmap) {
+    if (bitmap == null) return null;
     ByteArrayOutputStream stream = new ByteArrayOutputStream();
     bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream);
     return stream.toByteArray();
   }
 
-  public static Bitmap getCircleBitmap(Bitmap bitmap) {
-    final Bitmap output = Bitmap.createBitmap(bitmap.getWidth(),
-                                              bitmap.getHeight(), Bitmap.Config.ARGB_8888);
-    final Canvas canvas = new Canvas(output);
-
-    final int   color = Color.RED;
-    final Paint paint = new Paint();
-    final Rect  rect  = new Rect(0, 0, bitmap.getWidth(), bitmap.getHeight());
-    final RectF rectF = new RectF(rect);
-
-    paint.setAntiAlias(true);
-    canvas.drawARGB(0, 0, 0, 0);
-    paint.setColor(color);
-    canvas.drawOval(rectF, paint);
-
-    paint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.SRC_IN));
-    canvas.drawBitmap(bitmap, rect, rect, paint);
-
-    return output;
+  public static @Nullable Bitmap fromByteArray(@Nullable byte[] bytes) {
+    if (bytes == null) return null;
+    return BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
   }
 
   public static byte[] createFromNV21(@NonNull final byte[] data,
                                       final int width,
                                       final int height,
                                       int rotation,
-                                      final Rect croppingRect)
+                                      final Rect croppingRect,
+                                      final boolean flipHorizontal)
       throws IOException
   {
-    byte[] rotated = rotateNV21(data, width, height, rotation);
+    byte[] rotated = rotateNV21(data, width, height, rotation, flipHorizontal);
     final int rotatedWidth  = rotation % 180 > 0 ? height : width;
     final int rotatedHeight = rotation % 180 > 0 ? width  : height;
     YuvImage previewImage = new YuvImage(rotated, ImageFormat.NV21,
@@ -292,20 +199,33 @@ public class BitmapUtil {
     return bytes;
   }
 
+  /*
+   * NV21 a.k.a. YUV420sp
+   * YUV 4:2:0 planar image, with 8 bit Y samples, followed by interleaved V/U plane with 8bit 2x2
+   * subsampled chroma samples.
+   *
+   * http://www.fourcc.org/yuv.php#NV21
+   */
   public static byte[] rotateNV21(@NonNull final byte[] yuv,
                                   final int width,
                                   final int height,
-                                  final int rotation)
+                                  final int rotation,
+                                  final boolean flipHorizontal)
+      throws IOException
   {
     if (rotation == 0) return yuv;
     if (rotation % 90 != 0 || rotation < 0 || rotation > 270) {
       throw new IllegalArgumentException("0 <= rotation < 360, rotation % 90 == 0");
+    } else if ((width * height * 3) / 2 != yuv.length) {
+      throw new IOException("provided width and height don't jive with the data length (" +
+                            yuv.length + "). Width: " + width + " height: " + height +
+                            " = data length: " + (width * height * 3) / 2);
     }
 
     final byte[]  output    = new byte[yuv.length];
     final int     frameSize = width * height;
     final boolean swap      = rotation % 180 != 0;
-    final boolean xflip     = rotation % 270 != 0;
+    final boolean xflip     = flipHorizontal ? rotation % 270 == 0 : rotation % 270 != 0;
     final boolean yflip     = rotation >= 180;
 
     for (int j = 0; j < height; j++) {
@@ -331,6 +251,27 @@ public class BitmapUtil {
       }
     }
     return output;
+  }
+
+  private static Pair<Integer, Integer> clampDimensions(int inWidth, int inHeight, int maxWidth, int maxHeight) {
+    if (inWidth > maxWidth || inHeight > maxHeight) {
+      final float aspectWidth, aspectHeight;
+
+      if (inWidth == 0 || inHeight == 0) {
+        aspectWidth  = maxWidth;
+        aspectHeight = maxHeight;
+      } else if (inWidth >= inHeight) {
+        aspectWidth  = maxWidth;
+        aspectHeight = (aspectWidth / inWidth) * inHeight;
+      } else {
+        aspectHeight = maxHeight;
+        aspectWidth  = (aspectHeight / inHeight) * inWidth;
+      }
+
+      return new Pair<>(Math.round(aspectWidth), Math.round(aspectHeight));
+    } else {
+      return new Pair<>(inWidth, inHeight);
+    }
   }
 
   public static Bitmap createFromDrawable(final Drawable drawable, final int width, final int height) {
@@ -377,5 +318,35 @@ public class BitmapUtil {
       while (!created.get()) Util.wait(result, 0);
       return result[0];
     }
+  }
+
+  public static int getMaxTextureSize() {
+    final int IMAGE_MAX_BITMAP_DIMENSION = 2048;
+
+    EGL10 egl = (EGL10) EGLContext.getEGL();
+    EGLDisplay display = egl.eglGetDisplay(EGL10.EGL_DEFAULT_DISPLAY);
+
+    int[] version = new int[2];
+    egl.eglInitialize(display, version);
+
+    int[] totalConfigurations = new int[1];
+    egl.eglGetConfigs(display, null, 0, totalConfigurations);
+
+    EGLConfig[] configurationsList = new EGLConfig[totalConfigurations[0]];
+    egl.eglGetConfigs(display, configurationsList, totalConfigurations[0], totalConfigurations);
+
+    int[] textureSize = new int[1];
+    int maximumTextureSize = 0;
+
+    for (int i = 0; i < totalConfigurations[0]; i++) {
+      egl.eglGetConfigAttrib(display, configurationsList[i], EGL10.EGL_MAX_PBUFFER_WIDTH, textureSize);
+
+      if (maximumTextureSize < textureSize[0])
+        maximumTextureSize = textureSize[0];
+    }
+
+    egl.eglTerminate(display);
+
+    return Math.max(maximumTextureSize, IMAGE_MAX_BITMAP_DIMENSION);
   }
 }

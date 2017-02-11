@@ -6,10 +6,9 @@
       <item>English</item>
       <item>Arabic العربية</item>
       <item>Bulgarian български</item>
-      <item>Burmese မြန်မာစာ</item>
-      <item>Català</item>
       <item>Čeština</item>
-      <item>Chinese 中国的</item>
+      <item>Chinese (Simplified) 中文 (简体)</item>
+      <item>Chinese (Traditional) 中文 (繁體)</item>
       <item>Dansk</item>
       <item>Deutsch</item>
       <item>Español</item>
@@ -19,9 +18,11 @@
       <item>Hrvatski</item>
       <item>Indonesia</item>
       <item>Italiano</item>
-      <item>Japanese 日本人</item>
+      <item>Japanese 日本語</item>
       <item>Kannada ಕನ್ನಡ</item>
+      <item>Korean 한국어</item>
       <item>Magyar</item>
+      <item>Macedonian македонски јазик</item>
       <item>Nederlands</item>
       <item>Norsk</item>
       <item>Polski</item>
@@ -34,9 +35,8 @@
       <item>Slovenský</item>
       <item>Suomi</item>
       <item>Svenska</item>
-      <item>Tibetan བོད་སྐད།</item>
       <item>Türkçe</item>
-      <item>Ukrainian Український</item>
+      <item>Vietnamese Tiếng Việt</item>
   </string-array>
 
   <string-array name="language_values">
@@ -44,10 +44,9 @@
       <item>en</item>
       <item>ar</item>
       <item>bg</item>
-      <item>my</item>
-      <item>ca</item>
       <item>cs</item>
       <item>zh_CN</item>
+      <item>zh_TW</item>
       <item>da</item>
       <item>de</item>
       <item>es</item>
@@ -59,7 +58,9 @@
       <item>it</item>
       <item>ja</item>
       <item>kn_IN</item>
+      <item>ko</item>
       <item>hu</item>
+      <item>mk</item>
       <item>nl</item>
       <item>no</item>
       <item>pl</item>
@@ -72,9 +73,8 @@
       <item>sk</item>
       <item>fi</item>
       <item>sv</item>
-      <item>bo</item>
       <item>tr</item>
-      <item>uk</item>
+      <item>vi</item>
   </string-array>
 
   <string-array name="minutes_hours">
@@ -102,7 +102,7 @@
     <item>@string/preferences__white</item>
     <item>@string/preferences__none</item>
   </string-array>
-  
+
 
   <string-array name="pref_led_color_values" translatable="false">
     <item>green</item>
@@ -114,7 +114,7 @@
     <item>white</item>
     <item>none</item>
   </string-array>
-  
+
   <string-array name="pref_led_blink_pattern_entries">
     <item>@string/preferences__fast</item>
     <item>@string/preferences__normal</item>
@@ -162,6 +162,7 @@
       <item>@string/arrays__mute_for_two_hours</item>
       <item>@string/arrays__mute_for_one_day</item>
       <item>@string/arrays__mute_for_seven_days</item>
+      <item>@string/arrays__mute_for_one_year</item>
   </string-array>
 
   <string-array name="recipient_vibrate_entries">
@@ -176,24 +177,88 @@
       <item>2</item>
   </string-array>
 
-    <string-array name="default_color_choice_values" translatable="false">
-        <item>#ffF44336</item>
-        <item>#ffE91E63</item>
-        <item>#ff9C27B0</item>
-        <item>#ff673AB7</item>
-        <item>#ff3F51B5</item>
-        <item>#ff2196F3</item>
-        <item>#ff03A9F4</item>
-        <item>#ff00BCD4</item>
-        <item>#ff009688</item>
-        <item>#ff4CAF50</item>
-        <item>#ff8BC34A</item>
-        <!--<item>#FFCDDC39</item>-->
-        <item>#FFFFC107</item>
-        <item>#ffFF9800</item>
-        <item>#ffFF5722</item>
-        <item>#ff795548</item>
-        <item>#ff607D8B</item>
-    </string-array>
+  <string-array name="pref_notification_privacy_entries">
+      <item>@string/arrays__name_and_message</item>
+      <item>@string/arrays__name_only</item>
+      <item>@string/arrays__no_name_or_message</item>
+  </string-array>
+
+  <string-array name="pref_notification_privacy_values">
+      <item>all</item>
+      <item>contact</item>
+      <item>none</item>
+  </string-array>
+
+  <!-- discrete MIME type (the part before the "/") -->
+  <string-array name="pref_media_download_entries">
+      <item>image</item>
+      <item>audio</item>
+      <item>video</item>
+  </string-array>
+
+  <string-array name="pref_media_download_values">
+      <item>@string/arrays__images</item>
+      <item>@string/arrays__audio</item>
+      <item>@string/arrays__video</item>
+  </string-array>
+
+  <string-array name="pref_media_download_mobile_data_default">
+      <item>image</item>
+  </string-array>
+
+  <string-array name="pref_media_download_wifi_default">
+      <item>image</item>
+      <item>audio</item>
+      <item>video</item>
+  </string-array>
+
+  <string-array name="pref_media_download_roaming_default" />
+
+    <!-- RedPhone -->
+
+    <array name="incoming_call_widget_targets">
+        <item>@drawable/redphone_ic_lockscreen_answer</item>
+        <!--         <item>@drawable/ic_lockscreen_send_sms</item> -->
+        <item>@null</item>
+        <item>@drawable/redphone_ic_lockscreen_decline</item>
+        <item>@null</item>
+    </array>
+
+    <array name="incoming_call_widget_target_descriptions">
+        <item>"Answer"</item>
+        <item>"Send SMS"</item>
+        <item>"Decline"</item>
+        <item>@null</item>"
+    </array>
+
+    <array name="incoming_call_widget_direction_descriptions">
+        <item>"Right"</item>
+        <item>"Up"</item>
+        <item>"Left"</item>
+        <item>@null</item>
+    </array>
+
+    <integer-array name="expiration_times">
+        <item>0</item>
+        <item>5</item>
+        <item>10</item>
+        <item>30</item>
+        <item>60</item>
+        <item>300</item>
+        <item>1800</item>
+        <item>3600</item>
+        <item>21600</item>
+        <item>43200</item>
+        <item>86400</item>
+        <item>604800</item>
+    </integer-array>
+
+    <array name="scribble_colors">
+        <item>#000000</item>
+        <item>#ff0000</item>
+        <item>#ffff00</item>
+        <item>#00ffff</item>
+        <item>#ff00ff</item>
+    </array>
 
 </resources>

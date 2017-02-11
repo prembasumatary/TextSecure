@@ -5,15 +5,16 @@ import android.content.DialogInterface.OnClickListener;
 import android.media.MediaScannerConnection;
 import android.net.Uri;
 import android.os.Environment;
+import android.support.annotation.NonNull;
+import android.support.v7.app.AlertDialog;
 import android.util.Log;
 import android.webkit.MimeTypeMap;
 import android.widget.Toast;
 
-import com.afollestad.materialdialogs.AlertDialogWrapper;
-
 import org.thoughtcrime.securesms.R;
 import org.thoughtcrime.securesms.crypto.MasterSecret;
 import org.thoughtcrime.securesms.mms.PartAuthority;
+import org.thoughtcrime.securesms.util.task.ProgressDialogAsyncTask;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -33,18 +34,26 @@ public class SaveAttachmentTask extends ProgressDialogAsyncTask<SaveAttachmentTa
   private final WeakReference<Context> contextReference;
   private final WeakReference<MasterSecret> masterSecretReference;
 
+  private final int attachmentCount;
+
   public SaveAttachmentTask(Context context, MasterSecret masterSecret) {
-    super(context, R.string.ConversationFragment_saving_attachment, R.string.ConversationFragment_saving_attachment_to_sd_card);
-    this.contextReference      = new WeakReference<Context>(context);
-    this.masterSecretReference = new WeakReference<MasterSecret>(masterSecret);
+    this(context, masterSecret, 1);
+  }
+
+  public SaveAttachmentTask(Context context, MasterSecret masterSecret, int count) {
+    super(context,
+          context.getResources().getQuantityString(R.plurals.ConversationFragment_saving_n_attachments, count, count),
+          context.getResources().getQuantityString(R.plurals.ConversationFragment_saving_n_attachments_to_sd_card, count, count));
+    this.contextReference      = new WeakReference<>(context);
+    this.masterSecretReference = new WeakReference<>(masterSecret);
+    this.attachmentCount       = count;
   }
 
   @Override
   protected Integer doInBackground(SaveAttachmentTask.Attachment... attachments) {
-    if (attachments == null || attachments.length != 1 || attachments[0] == null) {
-      throw new AssertionError("must pass in exactly one attachment");
+    if (attachments == null || attachments.length == 0) {
+      throw new AssertionError("must pass in at least one attachment");
     }
-    Attachment attachment = attachments[0];
 
     try {
       Context context           = contextReference.get();
@@ -58,24 +67,35 @@ public class SaveAttachmentTask extends ProgressDialogAsyncTask<SaveAttachmentTa
         return FAILURE;
       }
 
-      File        mediaFile   = constructOutputFile(attachment.contentType, attachment.date);
-      InputStream inputStream = PartAuthority.getPartStream(context, masterSecret, attachment.uri);
-
-      if (inputStream == null) {
-        return FAILURE;
+      for (Attachment attachment : attachments) {
+        if (attachment != null && !saveAttachment(context, masterSecret, attachment)) {
+          return FAILURE;
+        }
       }
-
-      OutputStream outputStream = new FileOutputStream(mediaFile);
-      Util.copy(inputStream, outputStream);
-
-      MediaScannerConnection.scanFile(context, new String[]{mediaFile.getAbsolutePath()},
-                                      new String[]{attachment.contentType}, null);
 
       return SUCCESS;
     } catch (IOException ioe) {
       Log.w(TAG, ioe);
       return FAILURE;
     }
+  }
+
+  private boolean saveAttachment(Context context, MasterSecret masterSecret, Attachment attachment) throws IOException {
+    String contentType      = MediaUtil.getCorrectedMimeType(attachment.contentType);
+    File mediaFile          = constructOutputFile(contentType, attachment.date);
+    InputStream inputStream = PartAuthority.getAttachmentStream(context, masterSecret, attachment.uri);
+
+    if (inputStream == null) {
+      return false;
+    }
+
+    OutputStream outputStream = new FileOutputStream(mediaFile);
+    Util.copy(inputStream, outputStream);
+
+    MediaScannerConnection.scanFile(context, new String[]{mediaFile.getAbsolutePath()},
+                                    new String[]{contentType}, null);
+
+    return true;
   }
 
   @Override
@@ -86,12 +106,16 @@ public class SaveAttachmentTask extends ProgressDialogAsyncTask<SaveAttachmentTa
 
     switch (result) {
       case FAILURE:
-        Toast.makeText(context, R.string.ConversationFragment_error_while_saving_attachment_to_sd_card,
-            Toast.LENGTH_LONG).show();
+        Toast.makeText(context,
+                       context.getResources().getQuantityText(R.plurals.ConversationFragment_error_while_saving_attachments_to_sd_card,
+                                                              attachmentCount),
+                       Toast.LENGTH_LONG).show();
         break;
       case SUCCESS:
-        Toast.makeText(context, R.string.ConversationFragment_success_exclamation,
-            Toast.LENGTH_LONG).show();
+        Toast.makeText(context,
+                       context.getResources().getQuantityText(R.plurals.ConversationFragment_files_saved_successfully,
+                                                              attachmentCount),
+                       Toast.LENGTH_LONG).show();
         break;
       case WRITE_ACCESS_FAILURE:
         Toast.makeText(context, R.string.ConversationFragment_unable_to_write_to_sd_card_exclamation,
@@ -119,10 +143,9 @@ public class SaveAttachmentTask extends ProgressDialogAsyncTask<SaveAttachmentTa
     MimeTypeMap       mimeTypeMap   = MimeTypeMap.getSingleton();
     String            extension     = mimeTypeMap.getExtensionFromMimeType(contentType);
     SimpleDateFormat  dateFormatter = new SimpleDateFormat("yyyy-MM-dd-HHmmss");
-    String            base          = "textsecure-" + dateFormatter.format(timestamp);
+    String            base          = "signal-" + dateFormatter.format(timestamp);
 
-    if (extension == null)
-      extension = "attach";
+    if (extension == null) extension = "attach";
 
     int i = 0;
     File file = new File(outputDirectory, base + "." + extension);
@@ -138,7 +161,7 @@ public class SaveAttachmentTask extends ProgressDialogAsyncTask<SaveAttachmentTa
     public String contentType;
     public long   date;
 
-    public Attachment(Uri uri, String contentType, long date) {
+    public Attachment(@NonNull Uri uri, @NonNull String contentType, long date) {
       if (uri == null || contentType == null || date < 0) {
         throw new AssertionError("uri, content type, and date must all be specified");
       }
@@ -149,11 +172,16 @@ public class SaveAttachmentTask extends ProgressDialogAsyncTask<SaveAttachmentTa
   }
 
   public static void showWarningDialog(Context context, OnClickListener onAcceptListener) {
-    AlertDialogWrapper.Builder builder = new AlertDialogWrapper.Builder(context);
+    showWarningDialog(context, onAcceptListener, 1);
+  }
+
+  public static void showWarningDialog(Context context, OnClickListener onAcceptListener, int count) {
+    AlertDialog.Builder builder = new AlertDialog.Builder(context);
     builder.setTitle(R.string.ConversationFragment_save_to_sd_card);
     builder.setIconAttribute(R.attr.dialog_alert_icon);
     builder.setCancelable(true);
-    builder.setMessage(R.string.ConversationFragment_this_media_has_been_stored_in_an_encrypted_database_warning);
+    builder.setMessage(context.getResources().getQuantityString(R.plurals.ConversationFragment_saving_n_media_to_storage_warning,
+                                                                count, count));
     builder.setPositiveButton(R.string.yes, onAcceptListener);
     builder.setNegativeButton(R.string.no, null);
     builder.show();

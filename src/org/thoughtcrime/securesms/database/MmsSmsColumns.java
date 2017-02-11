@@ -1,5 +1,6 @@
 package org.thoughtcrime.securesms.database;
 
+@SuppressWarnings("UnnecessaryInterfaceModifier")
 public interface MmsSmsColumns {
 
   public static final String ID                       = "_id";
@@ -12,12 +13,21 @@ public interface MmsSmsColumns {
   public static final String ADDRESS_DEVICE_ID        = "address_device_id";
   public static final String RECEIPT_COUNT            = "delivery_receipt_count";
   public static final String MISMATCHED_IDENTITIES    = "mismatched_identities";
+  public static final String UNIQUE_ROW_ID            = "unique_row_id";
+  public static final String SUBSCRIPTION_ID          = "subscription_id";
+  public static final String EXPIRES_IN               = "expires_in";
+  public static final String EXPIRE_STARTED           = "expire_started";
 
   public static class Types {
     protected static final long TOTAL_MASK = 0xFFFFFFFF;
 
     // Base Types
     protected static final long BASE_TYPE_MASK                     = 0x1F;
+
+    protected static final long INCOMING_CALL_TYPE                 = 1;
+    protected static final long OUTGOING_CALL_TYPE                 = 2;
+    protected static final long MISSED_CALL_TYPE                   = 3;
+    protected static final long JOINED_TYPE                        = 4;
 
     protected static final long BASE_INBOX_TYPE                    = 20;
     protected static final long BASE_OUTBOX_TYPE                   = 21;
@@ -53,8 +63,9 @@ public interface MmsSmsColumns {
     protected static final long PUSH_MESSAGE_BIT   = 0x200000;
 
     // Group Message Information
-    protected static final long GROUP_UPDATE_BIT = 0x10000;
-    protected static final long GROUP_QUIT_BIT   = 0x20000;
+    protected static final long GROUP_UPDATE_BIT            = 0x10000;
+    protected static final long GROUP_QUIT_BIT              = 0x20000;
+    protected static final long EXPIRATION_TIMER_UPDATE_BIT = 0x40000;
 
     // Encrypted Storage Information
     protected static final long ENCRYPTION_MASK                  = 0xFF000000;
@@ -110,6 +121,10 @@ public interface MmsSmsColumns {
       return (type & BASE_TYPE_MASK) == BASE_INBOX_TYPE;
     }
 
+    public static boolean isJoinedType(long type) {
+      return (type & BASE_TYPE_MASK) == JOINED_TYPE;
+    }
+
     public static boolean isSecureType(long type) {
       return (type & SECURE_MESSAGE_BIT) != 0;
     }
@@ -148,6 +163,26 @@ public interface MmsSmsColumns {
 
     public static boolean isIdentityUpdate(long type) {
       return (type & KEY_EXCHANGE_IDENTITY_UPDATE_BIT) != 0;
+    }
+
+    public static boolean isCallLog(long type) {
+      return type == INCOMING_CALL_TYPE || type == OUTGOING_CALL_TYPE || type == MISSED_CALL_TYPE;
+    }
+
+    public static boolean isExpirationTimerUpdate(long type) {
+      return (type & EXPIRATION_TIMER_UPDATE_BIT) != 0;
+    }
+
+    public static boolean isIncomingCall(long type) {
+      return type == INCOMING_CALL_TYPE;
+    }
+
+    public static boolean isOutgoingCall(long type) {
+      return type == OUTGOING_CALL_TYPE;
+    }
+
+    public static boolean isMissedCall(long type) {
+      return type == MISSED_CALL_TYPE;
     }
 
     public static boolean isGroupUpdate(long type) {

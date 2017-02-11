@@ -38,17 +38,17 @@ public class SmsSendtoActivity extends Activity {
       destination = getDestinationForView(original);
     }
 
-    Recipients recipients = RecipientFactory.getRecipientsFromString(this, destination.getDestination(), false);
+    Recipients recipients = RecipientFactory.getRecipientsFromString(this, destination.getDestination(), true);
     long       threadId   = DatabaseFactory.getThreadDatabase(this).getThreadIdIfExistsFor(recipients);
 
     final Intent nextIntent;
-    if (recipients == null || recipients.isEmpty()) {
+    if (recipients.isEmpty()) {
       nextIntent = new Intent(this, NewConversationActivity.class);
-      nextIntent.putExtra(ConversationActivity.DRAFT_TEXT_EXTRA, destination.getBody());
+      nextIntent.putExtra(ConversationActivity.TEXT_EXTRA, destination.getBody());
       Toast.makeText(this, R.string.ConversationActivity_specify_recipient, Toast.LENGTH_LONG).show();
     } else {
       nextIntent = new Intent(this, ConversationActivity.class);
-      nextIntent.putExtra(ConversationActivity.DRAFT_TEXT_EXTRA, destination.getBody());
+      nextIntent.putExtra(ConversationActivity.TEXT_EXTRA, destination.getBody());
       nextIntent.putExtra(ConversationActivity.THREAD_ID_EXTRA, threadId);
       nextIntent.putExtra(ConversationActivity.RECIPIENTS_EXTRA, recipients.getIds());
     }

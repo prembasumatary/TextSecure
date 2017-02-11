@@ -17,13 +17,14 @@
  */
 package org.thoughtcrime.securesms.crypto;
 
+import android.support.annotation.NonNull;
 import android.util.Log;
 
 import org.thoughtcrime.securesms.util.Base64;
 import org.thoughtcrime.securesms.util.Hex;
-import org.whispersystems.libaxolotl.InvalidMessageException;
-import org.whispersystems.libaxolotl.ecc.Curve;
-import org.whispersystems.libaxolotl.ecc.ECPrivateKey;
+import org.whispersystems.libsignal.InvalidMessageException;
+import org.whispersystems.libsignal.ecc.Curve;
+import org.whispersystems.libsignal.ecc.ECPrivateKey;
 
 import java.io.IOException;
 import java.security.GeneralSecurityException;
@@ -74,7 +75,7 @@ public class MasterCipher {
     return encryptBytes(privateKey.serialize());
   }
 
-  public String encryptBody(String body)  {
+  public String encryptBody(@NonNull  String body)  {
     return encryptAndEncodeBytes(body.getBytes());
   }
 	
@@ -83,16 +84,16 @@ public class MasterCipher {
   }
 	
   public ECPrivateKey decryptKey(byte[] key)
-      throws org.whispersystems.libaxolotl.InvalidKeyException
+      throws org.whispersystems.libsignal.InvalidKeyException
   {
     try {
       return Curve.decodePrivatePoint(decryptBytes(key));
     } catch (InvalidMessageException ime) {
-      throw new org.whispersystems.libaxolotl.InvalidKeyException(ime);
+      throw new org.whispersystems.libsignal.InvalidKeyException(ime);
     }
   }
 	
-  public byte[] decryptBytes(byte[] decodedBody) throws InvalidMessageException {
+  public byte[] decryptBytes(@NonNull byte[] decodedBody) throws InvalidMessageException {
     try {
       Mac mac              = getMac(masterSecret.getMacKey());
       byte[] encryptedBody = verifyMacBody(mac, decodedBody);
@@ -103,7 +104,7 @@ public class MasterCipher {
       return encrypted;
     } catch (GeneralSecurityException ge) {
       throw new InvalidMessageException(ge);
-    }		
+    }
   }
 	
   public byte[] encryptBytes(byte[] body) {
@@ -148,12 +149,16 @@ public class MasterCipher {
     }
   }
 	
-  private String encryptAndEncodeBytes(byte[] bytes) {
+  private String encryptAndEncodeBytes(@NonNull  byte[] bytes) {
     byte[] encryptedAndMacBody = encryptBytes(bytes);
     return Base64.encodeBytes(encryptedAndMacBody);
   }
 	
-  private byte[] verifyMacBody(Mac hmac, byte[] encryptedAndMac) throws InvalidMessageException {		
+  private byte[] verifyMacBody(@NonNull Mac hmac, @NonNull byte[] encryptedAndMac) throws InvalidMessageException {
+    if (encryptedAndMac.length < hmac.getMacLength()) {
+      throw new InvalidMessageException("length(encrypted body + MAC) < length(MAC)");
+    }
+
     byte[] encrypted = new byte[encryptedAndMac.length - hmac.getMacLength()];
     System.arraycopy(encryptedAndMac, 0, encrypted, 0, encrypted.length);
 		

@@ -11,9 +11,10 @@ import android.support.annotation.Nullable;
 import android.util.Log;
 
 import org.thoughtcrime.securesms.color.MaterialColor;
+import org.thoughtcrime.securesms.recipients.RecipientFactory;
 import org.thoughtcrime.securesms.recipients.Recipients;
 import org.thoughtcrime.securesms.util.Util;
-import org.whispersystems.libaxolotl.util.guava.Optional;
+import org.whispersystems.libsignal.util.guava.Optional;
 
 import java.util.Arrays;
 
@@ -23,14 +24,17 @@ public class RecipientPreferenceDatabase extends Database {
   private static final String TAG = RecipientPreferenceDatabase.class.getSimpleName();
   private static final String RECIPIENT_PREFERENCES_URI = "content://textsecure/recipients/";
 
-  private static final String TABLE_NAME    = "recipient_preferences";
-  private static final String ID            = "_id";
-  private static final String RECIPIENT_IDS = "recipient_ids";
-  private static final String BLOCK         = "block";
-  private static final String NOTIFICATION  = "notification";
-  private static final String VIBRATE       = "vibrate";
-  private static final String MUTE_UNTIL    = "mute_until";
-  private static final String COLOR         = "color";
+  private static final String TABLE_NAME              = "recipient_preferences";
+  private static final String ID                      = "_id";
+  private static final String RECIPIENT_IDS           = "recipient_ids";
+  private static final String BLOCK                   = "block";
+  private static final String NOTIFICATION            = "notification";
+  private static final String VIBRATE                 = "vibrate";
+  private static final String MUTE_UNTIL              = "mute_until";
+  private static final String COLOR                   = "color";
+  private static final String SEEN_INVITE_REMINDER    = "seen_invite_reminder";
+  private static final String DEFAULT_SUBSCRIPTION_ID = "default_subscription_id";
+  private static final String EXPIRE_MESSAGES         = "expire_messages";
 
   public enum VibrateState {
     DEFAULT(0), ENABLED(1), DISABLED(2);
@@ -58,7 +62,10 @@ public class RecipientPreferenceDatabase extends Database {
           NOTIFICATION + " TEXT DEFAULT NULL, " +
           VIBRATE + " INTEGER DEFAULT " + VibrateState.DEFAULT.getId() + ", " +
           MUTE_UNTIL + " INTEGER DEFAULT 0, " +
-          COLOR + " TEXT DEFAULT NULL);";
+          COLOR + " TEXT DEFAULT NULL, " +
+          SEEN_INVITE_REMINDER + " INTEGER DEFAULT 0, " +
+          DEFAULT_SUBSCRIPTION_ID + " INTEGER DEFAULT -1, " +
+          EXPIRE_MESSAGES + " INTEGER DEFAULT 0);";
 
   public RecipientPreferenceDatabase(Context context, SQLiteOpenHelper databaseHelper) {
     super(context, databaseHelper);
@@ -74,6 +81,10 @@ public class RecipientPreferenceDatabase extends Database {
     return cursor;
   }
 
+  public BlockedReader readerForBlocked(Cursor cursor) {
+    return new BlockedReader(context, cursor);
+  }
+
   public Optional<RecipientsPreferences> getRecipientsPreferences(@NonNull long[] recipients) {
     Arrays.sort(recipients);
 
@@ -86,12 +97,15 @@ public class RecipientPreferenceDatabase extends Database {
                               null, null, null);
 
       if (cursor != null && cursor.moveToNext()) {
-        boolean blocked         = cursor.getInt(cursor.getColumnIndexOrThrow(BLOCK)) == 1;
-        String  notification    = cursor.getString(cursor.getColumnIndexOrThrow(NOTIFICATION));
-        int     vibrateState    = cursor.getInt(cursor.getColumnIndexOrThrow(VIBRATE));
-        long    muteUntil       = cursor.getLong(cursor.getColumnIndexOrThrow(MUTE_UNTIL));
-        String  serializedColor = cursor.getString(cursor.getColumnIndexOrThrow(COLOR));
-        Uri     notificationUri = notification == null ? null : Uri.parse(notification);
+        boolean blocked               = cursor.getInt(cursor.getColumnIndexOrThrow(BLOCK))                == 1;
+        String  notification          = cursor.getString(cursor.getColumnIndexOrThrow(NOTIFICATION));
+        int     vibrateState          = cursor.getInt(cursor.getColumnIndexOrThrow(VIBRATE));
+        long    muteUntil             = cursor.getLong(cursor.getColumnIndexOrThrow(MUTE_UNTIL));
+        String  serializedColor       = cursor.getString(cursor.getColumnIndexOrThrow(COLOR));
+        Uri     notificationUri       = notification == null ? null : Uri.parse(notification);
+        boolean seenInviteReminder    = cursor.getInt(cursor.getColumnIndexOrThrow(SEEN_INVITE_REMINDER)) == 1;
+        int     defaultSubscriptionId = cursor.getInt(cursor.getColumnIndexOrThrow(DEFAULT_SUBSCRIPTION_ID));
+        int     expireMessages        = cursor.getInt(cursor.getColumnIndexOrThrow(EXPIRE_MESSAGES));
 
         MaterialColor color;
 
@@ -106,7 +120,8 @@ public class RecipientPreferenceDatabase extends Database {
 
         return Optional.of(new RecipientsPreferences(blocked, muteUntil,
                                                      VibrateState.fromId(vibrateState),
-                                                     notificationUri, color));
+                                                     notificationUri, color, seenInviteReminder,
+                                                     defaultSubscriptionId, expireMessages));
       }
 
       return Optional.absent();
@@ -118,6 +133,12 @@ public class RecipientPreferenceDatabase extends Database {
   public void setColor(Recipients recipients, MaterialColor color) {
     ContentValues values = new ContentValues();
     values.put(COLOR, color.serialize());
+    updateOrInsert(recipients, values);
+  }
+
+  public void setDefaultSubscriptionId(@NonNull  Recipients recipients, int defaultSubscriptionId) {
+    ContentValues values = new ContentValues();
+    values.put(DEFAULT_SUBSCRIPTION_ID, defaultSubscriptionId);
     updateOrInsert(recipients, values);
   }
 
@@ -146,6 +167,20 @@ public class RecipientPreferenceDatabase extends Database {
     updateOrInsert(recipients, values);
   }
 
+  public void setSeenInviteReminder(Recipients recipients, boolean seen) {
+    ContentValues values = new ContentValues(1);
+    values.put(SEEN_INVITE_REMINDER, seen ? 1 : 0);
+    updateOrInsert(recipients, values);
+  }
+
+  public void setExpireMessages(Recipients recipients, int expiration) {
+    recipients.setExpireMessages(expiration);
+
+    ContentValues values = new ContentValues(1);
+    values.put(EXPIRE_MESSAGES, expiration);
+    updateOrInsert(recipients, values);
+  }
+
   private void updateOrInsert(Recipients recipients, ContentValues contentValues) {
     SQLiteDatabase database = databaseHelper.getWritableDatabase();
 
@@ -171,17 +206,26 @@ public class RecipientPreferenceDatabase extends Database {
     private final VibrateState  vibrateState;
     private final Uri           notification;
     private final MaterialColor color;
+    private final boolean       seenInviteReminder;
+    private final int           defaultSubscriptionId;
+    private final int           expireMessages;
 
     public RecipientsPreferences(boolean blocked, long muteUntil,
                                  @NonNull VibrateState vibrateState,
                                  @Nullable Uri notification,
-                                 @Nullable MaterialColor color)
+                                 @Nullable MaterialColor color,
+                                 boolean seenInviteReminder,
+                                 int defaultSubscriptionId,
+                                 int expireMessages)
     {
-      this.blocked      = blocked;
-      this.muteUntil    = muteUntil;
-      this.vibrateState = vibrateState;
-      this.notification = notification;
-      this.color        = color;
+      this.blocked               = blocked;
+      this.muteUntil             = muteUntil;
+      this.vibrateState          = vibrateState;
+      this.notification          = notification;
+      this.color                 = color;
+      this.seenInviteReminder    = seenInviteReminder;
+      this.defaultSubscriptionId = defaultSubscriptionId;
+      this.expireMessages        = expireMessages;
     }
 
     public @Nullable MaterialColor getColor() {
@@ -202,6 +246,42 @@ public class RecipientPreferenceDatabase extends Database {
 
     public @Nullable Uri getRingtone() {
       return notification;
+    }
+
+    public boolean hasSeenInviteReminder() {
+      return seenInviteReminder;
+    }
+
+    public Optional<Integer> getDefaultSubscriptionId() {
+      return defaultSubscriptionId != -1 ? Optional.of(defaultSubscriptionId) : Optional.<Integer>absent();
+    }
+
+    public int getExpireMessages() {
+      return expireMessages;
+    }
+  }
+
+  public static class BlockedReader {
+
+    private final Context context;
+    private final Cursor cursor;
+
+    public BlockedReader(Context context, Cursor cursor) {
+      this.context = context;
+      this.cursor  = cursor;
+    }
+
+    public @NonNull Recipients getCurrent() {
+      String recipientIds = cursor.getString(cursor.getColumnIndexOrThrow(RECIPIENT_IDS));
+      return RecipientFactory.getRecipientsForIds(context, recipientIds, false);
+    }
+
+    public @Nullable Recipients getNext() {
+      if (!cursor.moveToNext()) {
+        return null;
+      }
+
+      return getCurrent();
     }
   }
 }

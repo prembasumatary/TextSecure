@@ -17,41 +17,30 @@
 package org.thoughtcrime.securesms.mms;
 
 import android.content.Context;
-import android.graphics.drawable.Drawable;
-import android.util.Pair;
+import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
 
-import org.thoughtcrime.securesms.R;
-import org.thoughtcrime.securesms.crypto.MasterSecret;
-import org.thoughtcrime.securesms.dom.smil.parser.SmilXmlSerializer;
-import org.thoughtcrime.securesms.util.ListenableFutureTask;
+import org.thoughtcrime.securesms.attachments.Attachment;
 import org.thoughtcrime.securesms.util.MediaUtil;
-import org.thoughtcrime.securesms.util.SmilUtil;
-import org.thoughtcrime.securesms.util.Util;
+import org.whispersystems.libsignal.util.guava.Optional;
 
-import java.io.ByteArrayOutputStream;
-import java.io.UnsupportedEncodingException;
 import java.util.LinkedList;
 import java.util.List;
-
-import ws.com.google.android.mms.ContentType;
-import ws.com.google.android.mms.pdu.CharacterSets;
-import ws.com.google.android.mms.pdu.PduBody;
-import ws.com.google.android.mms.pdu.PduPart;
 
 public class SlideDeck {
 
   private final List<Slide> slides = new LinkedList<>();
 
-  public SlideDeck(SlideDeck copy) {
-    this.slides.addAll(copy.getSlides());
-  }
-
-  public SlideDeck(Context context, MasterSecret masterSecret, PduBody body) {
-    for (int i=0;i<body.getPartsNum();i++) {
-      String contentType = Util.toIsoString(body.getPart(i).getContentType());
-      Slide  slide       = MediaUtil.getSlideForPart(context, masterSecret, body.getPart(i), contentType);
+  public SlideDeck(Context context, List<Attachment> attachments) {
+    for (Attachment attachment : attachments) {
+      Slide slide = MediaUtil.getSlideForAttachment(context, attachment);
       if (slide != null) slides.add(slide);
     }
+  }
+
+  public SlideDeck(Context context, Attachment attachment) {
+    Slide slide = MediaUtil.getSlideForAttachment(context, attachment);
+    if (slide != null) slides.add(slide);
   }
 
   public SlideDeck() {
@@ -61,15 +50,30 @@ public class SlideDeck {
     slides.clear();
   }
 
-  public PduBody toPduBody() {
-    PduBody body = new PduBody();
+  @NonNull
+  public String getBody() {
+    String body = "";
 
     for (Slide slide : slides) {
-      PduPart part = slide.getPart();
-      body.addPart(part);
+      Optional<String> slideBody = slide.getBody();
+
+      if (slideBody.isPresent()) {
+        body = slideBody.get();
+      }
     }
 
     return body;
+  }
+
+  @NonNull
+  public List<Attachment> asAttachments() {
+    List<Attachment> attachments = new LinkedList<>();
+
+    for (Slide slide : slides) {
+      attachments.add(slide.asAttachment());
+    }
+
+    return attachments;
   }
 
   public void addSlide(Slide slide) {
@@ -89,12 +93,23 @@ public class SlideDeck {
     return false;
   }
 
-  public Slide getThumbnailSlide(Context context) {
+  public @Nullable Slide getThumbnailSlide() {
     for (Slide slide : slides) {
       if (slide.hasImage()) {
         return slide;
       }
     }
+
+    return null;
+  }
+
+  public @Nullable AudioSlide getAudioSlide() {
+    for (Slide slide : slides) {
+      if (slide.hasAudio()) {
+        return (AudioSlide)slide;
+      }
+    }
+
     return null;
   }
 }

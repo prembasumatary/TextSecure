@@ -1,22 +1,21 @@
 package org.thoughtcrime.securesms.contacts.avatars;
 
 import android.content.Context;
+import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.net.Uri;
-import android.os.Build.VERSION;
-import android.os.Build.VERSION_CODES;
-import android.provider.ContactsContract;
 import android.support.annotation.DrawableRes;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.text.TextUtils;
-import android.util.Log;
+
+import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.engine.DiskCacheStrategy;
 
 import org.thoughtcrime.securesms.R;
-import org.thoughtcrime.securesms.util.BitmapDecodingException;
-import org.thoughtcrime.securesms.util.BitmapUtil;
+import org.thoughtcrime.securesms.mms.ContactPhotoUriLoader.ContactPhotoUri;
 
-import java.io.InputStream;
+import java.util.concurrent.ExecutionException;
 
 public class ContactPhotoFactory {
 
@@ -40,31 +39,33 @@ public class ContactPhotoFactory {
   }
 
   public static ContactPhoto getContactPhoto(Context context, Uri uri, String name) {
+    int targetSize = context.getResources().getDimensionPixelSize(R.dimen.contact_photo_target_size);
+    return getContactPhoto(context, uri, name, targetSize);
+  }
+
+  public static ContactPhoto getContactPhoto(@NonNull  Context context,
+                                             @Nullable Uri uri,
+                                             @Nullable String name,
+                                             int targetSize)
+  {
+    if (uri == null) return getDefaultContactPhoto(name);
+
     try {
-      InputStream inputStream = getContactPhotoStream(context, uri);
-      int         targetSize  = context.getResources().getDimensionPixelSize(R.dimen.contact_photo_target_size);
-
-      if (inputStream != null) {
-        return new BitmapContactPhoto(BitmapUtil.createScaledBitmap(inputStream, getContactPhotoStream(context, uri), targetSize, targetSize));
-      }
-    } catch (BitmapDecodingException e) {
-      Log.w(TAG, e);
+      Bitmap bitmap = Glide.with(context)
+                           .load(new ContactPhotoUri(uri)).asBitmap()
+                           .diskCacheStrategy(DiskCacheStrategy.NONE)
+                           .centerCrop().into(targetSize, targetSize).get();
+      return new BitmapContactPhoto(bitmap);
+    } catch (ExecutionException e) {
+      return getDefaultContactPhoto(name);
+    } catch (InterruptedException e) {
+      throw new AssertionError(e);
     }
-
-    return getDefaultContactPhoto(name);
   }
 
   public static ContactPhoto getGroupContactPhoto(@Nullable byte[] avatar) {
     if (avatar == null) return getDefaultGroupPhoto();
 
     return new BitmapContactPhoto(BitmapFactory.decodeByteArray(avatar, 0, avatar.length));
-  }
-
-  private static InputStream getContactPhotoStream(Context context, Uri uri) {
-    if (VERSION.SDK_INT >= VERSION_CODES.ICE_CREAM_SANDWICH) {
-      return ContactsContract.Contacts.openContactPhotoInputStream(context.getContentResolver(), uri, true);
-    } else {
-      return ContactsContract.Contacts.openContactPhotoInputStream(context.getContentResolver(), uri);
-    }
   }
 }

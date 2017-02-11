@@ -72,11 +72,11 @@ public class OutgoingLegacyMmsConnection extends LegacyMmsConnection implements 
   }
 
   @Override
-  public @Nullable SendConf send(@NonNull byte[] pduBytes) throws UndeliverableMessageException {
+  public @Nullable SendConf send(@NonNull byte[] pduBytes, int subscriptionId) throws UndeliverableMessageException {
     try {
       MmsRadio radio = MmsRadio.getInstance(context);
 
-      if (isCdmaDevice()) {
+      if (isDirectConnect()) {
         Log.w(TAG, "Sending MMS directly without radio change...");
         try {
           return send(pduBytes, false, false);

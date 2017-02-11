@@ -3,13 +3,10 @@ package org.thoughtcrime.securesms.push;
 import android.content.Context;
 
 import org.thoughtcrime.securesms.crypto.SecurityEvent;
-import org.thoughtcrime.securesms.database.DatabaseFactory;
-import org.thoughtcrime.securesms.recipients.RecipientFactory;
-import org.thoughtcrime.securesms.recipients.Recipients;
-import org.whispersystems.textsecure.api.TextSecureMessageSender;
-import org.whispersystems.textsecure.api.push.TextSecureAddress;
+import org.whispersystems.signalservice.api.SignalServiceMessageSender;
+import org.whispersystems.signalservice.api.push.SignalServiceAddress;
 
-public class SecurityEventListener implements TextSecureMessageSender.EventListener {
+public class SecurityEventListener implements SignalServiceMessageSender.EventListener {
 
   private static final String TAG = SecurityEventListener.class.getSimpleName();
 
@@ -20,10 +17,7 @@ public class SecurityEventListener implements TextSecureMessageSender.EventListe
   }
 
   @Override
-  public void onSecurityEvent(TextSecureAddress textSecureAddress) {
-    Recipients recipients = RecipientFactory.getRecipientsFromString(context, textSecureAddress.getNumber(), false);
-    long       threadId   = DatabaseFactory.getThreadDatabase(context).getThreadIdFor(recipients);
-
-    SecurityEvent.broadcastSecurityUpdateEvent(context, threadId);
+  public void onSecurityEvent(SignalServiceAddress textSecureAddress) {
+    SecurityEvent.broadcastSecurityUpdateEvent(context);
   }
 }

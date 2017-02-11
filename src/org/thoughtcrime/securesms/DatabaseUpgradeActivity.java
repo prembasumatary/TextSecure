@@ -27,24 +27,34 @@ import android.util.Log;
 import android.view.View;
 import android.widget.ProgressBar;
 
+import org.thoughtcrime.securesms.attachments.DatabaseAttachment;
 import org.thoughtcrime.securesms.crypto.IdentityKeyUtil;
 import org.thoughtcrime.securesms.crypto.MasterSecret;
 import org.thoughtcrime.securesms.crypto.storage.TextSecurePreKeyStore;
 import org.thoughtcrime.securesms.crypto.storage.TextSecureSessionStore;
 import org.thoughtcrime.securesms.database.DatabaseFactory;
+import org.thoughtcrime.securesms.database.MmsDatabase;
+import org.thoughtcrime.securesms.database.MmsDatabase.Reader;
+import org.thoughtcrime.securesms.database.AttachmentDatabase;
 import org.thoughtcrime.securesms.database.PushDatabase;
+import org.thoughtcrime.securesms.database.model.MessageRecord;
+import org.thoughtcrime.securesms.jobs.AttachmentDownloadJob;
 import org.thoughtcrime.securesms.jobs.CreateSignedPreKeyJob;
 import org.thoughtcrime.securesms.jobs.DirectoryRefreshJob;
 import org.thoughtcrime.securesms.jobs.PushDecryptJob;
+import org.thoughtcrime.securesms.jobs.RefreshAttributesJob;
 import org.thoughtcrime.securesms.notifications.MessageNotifier;
+import org.thoughtcrime.securesms.util.TextSecurePreferences;
 import org.thoughtcrime.securesms.util.Util;
 import org.thoughtcrime.securesms.util.VersionTracker;
 
 import java.io.File;
+import java.util.List;
 import java.util.SortedSet;
 import java.util.TreeSet;
 
 public class DatabaseUpgradeActivity extends BaseActivity {
+  private static final String TAG = DatabaseUpgradeActivity.class.getSimpleName();
 
   public static final int NO_MORE_KEY_EXCHANGE_PREFIX_VERSION  = 46;
   public static final int MMS_BODY_VERSION                     = 46;
@@ -57,6 +67,9 @@ public class DatabaseUpgradeActivity extends BaseActivity {
   public static final int PUSH_DECRYPT_SERIAL_ID_VERSION       = 131;
   public static final int MIGRATE_SESSION_PLAINTEXT            = 136;
   public static final int CONTACTS_ACCOUNT_VERSION             = 136;
+  public static final int MEDIA_DOWNLOAD_CONTROLS_VERSION      = 151;
+  public static final int REDPHONE_SUPPORT_VERSION             = 157;
+//  public static final int FINGERPRINTS_NON_BLOCKING_VESRION    = 212;
 
   private static final SortedSet<Integer> UPGRADE_VERSIONS = new TreeSet<Integer>() {{
     add(NO_MORE_KEY_EXCHANGE_PREFIX_VERSION);
@@ -68,6 +81,9 @@ public class DatabaseUpgradeActivity extends BaseActivity {
     add(NO_DECRYPT_QUEUE_VERSION);
     add(PUSH_DECRYPT_SERIAL_ID_VERSION);
     add(MIGRATE_SESSION_PLAINTEXT);
+    add(MEDIA_DOWNLOAD_CONTROLS_VERSION);
+    add(REDPHONE_SUPPORT_VERSION);
+//    add(FINGERPRINTS_NON_BLOCKING_VESRION);
   }};
 
   private MasterSecret masterSecret;
@@ -88,7 +104,7 @@ public class DatabaseUpgradeActivity extends BaseActivity {
           .execute(VersionTracker.getLastSeenVersion(this));
     } else {
       VersionTracker.updateLastSeenVersion(this);
-      MessageNotifier.updateNotification(DatabaseUpgradeActivity.this, masterSecret);
+      updateNotifications(this, masterSecret);
       startActivity((Intent)getIntent().getParcelableExtra("next_intent"));
       finish();
     }
@@ -121,6 +137,16 @@ public class DatabaseUpgradeActivity extends BaseActivity {
     } catch (PackageManager.NameNotFoundException e) {
       throw new AssertionError(e);
     }
+  }
+
+  private void updateNotifications(final Context context, final MasterSecret masterSecret) {
+    new AsyncTask<Void, Void, Void>() {
+      @Override
+      protected Void doInBackground(Void... params) {
+        MessageNotifier.updateNotification(context, masterSecret);
+        return null;
+      }
+    }.execute();
   }
 
   public interface DatabaseUpgradeListener {
@@ -195,7 +221,47 @@ public class DatabaseUpgradeActivity extends BaseActivity {
                           .add(new DirectoryRefreshJob(getApplicationContext()));
       }
 
+      if (params[0] < MEDIA_DOWNLOAD_CONTROLS_VERSION) {
+        schedulePendingIncomingParts(context);
+      }
+
+      if (params[0] < REDPHONE_SUPPORT_VERSION) {
+        ApplicationContext.getInstance(getApplicationContext())
+                          .getJobManager()
+                          .add(new RefreshAttributesJob(getApplicationContext()));
+        ApplicationContext.getInstance(getApplicationContext())
+                          .getJobManager()
+                          .add(new DirectoryRefreshJob(getApplicationContext()));
+      }
+
+//      if (params[0] < FINGERPRINTS_NON_BLOCKING_VESRION) {
+//        TextSecurePreferences.setBlockingIdentityUpdates(getApplicationContext(), true);
+//      }
+
       return null;
+    }
+
+    private void schedulePendingIncomingParts(Context context) {
+      final AttachmentDatabase       attachmentDb       = DatabaseFactory.getAttachmentDatabase(context);
+      final MmsDatabase              mmsDb              = DatabaseFactory.getMmsDatabase(context);
+      final List<DatabaseAttachment> pendingAttachments = DatabaseFactory.getAttachmentDatabase(context).getPendingAttachments();
+
+      Log.w(TAG, pendingAttachments.size() + " pending parts.");
+      for (DatabaseAttachment attachment : pendingAttachments) {
+        final Reader        reader = mmsDb.readerFor(masterSecret, mmsDb.getMessage(attachment.getMmsId()));
+        final MessageRecord record = reader.getNext();
+
+        if (attachment.hasData()) {
+          Log.w(TAG, "corrected a pending media part " + attachment.getAttachmentId() + "that already had data.");
+          attachmentDb.setTransferState(attachment.getMmsId(), attachment.getAttachmentId(), AttachmentDatabase.TRANSFER_PROGRESS_DONE);
+        } else if (record != null && !record.isOutgoing() && record.isPush()) {
+          Log.w(TAG, "queuing new attachment download job for incoming push part " + attachment.getAttachmentId() + ".");
+          ApplicationContext.getInstance(context)
+                            .getJobManager()
+                            .add(new AttachmentDownloadJob(context, attachment.getMmsId(), attachment.getAttachmentId()));
+        }
+        reader.close();
+      }
     }
 
     private void scheduleMessagesInPushDatabase(Context context) {
@@ -230,7 +296,7 @@ public class DatabaseUpgradeActivity extends BaseActivity {
     @Override
     protected void onPostExecute(Void result) {
       VersionTracker.updateLastSeenVersion(DatabaseUpgradeActivity.this);
-      MessageNotifier.updateNotification(DatabaseUpgradeActivity.this, masterSecret);
+      updateNotifications(DatabaseUpgradeActivity.this, masterSecret);
 
       startActivity((Intent)getIntent().getParcelableExtra("next_intent"));
       finish();
